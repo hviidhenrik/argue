@@ -1,0 +1,11 @@
+.vscode/
+archive/
+conf/
+dist/
+references/
+tasks/
+config.json
+*.parquet
+
+
+configuration

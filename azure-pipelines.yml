@@ -1,0 +1,75 @@
+trigger:
+  branches:
+    include:
+    - master
+
+# this becomes $(Build.BuildNumber) variable
+name: $(AppBaseName)_$(Build.SourceBranchName)_$(Date:yyyyMMdd).$(Rev:.r)
+
+pool:
+  vmImage: 'ubuntu-latest'
+variables:
+  python.version: '3.7'
+  pytest.report: 'test-pytest_results.xml'
+  AppBaseName: name-of-model
+  BuildBaseVersion: '1.1.0'
+  BuildRunNumber: $[counter(variables['BuildBaseVersion'], 100)]
+
+jobs:
+- job: 'Test'
+  steps:
+  - task: UsePythonVersion@0
+    displayName: 'Use Python $(python.version)'
+    inputs:
+      versionSpec: '$(python.version)'
+
+  - script: 'python -m pip install --upgrade pip && pip install -r requirements.txt && pip install dist/smart_plant_predictive_maintenance-1.9.4b3-py3-none-any.whl'
+    displayName: 'Install dependencies'
+
+  # Run pytest        
+  - script: 'invoke test.pytest'
+    displayName: 'Pytest'
+    condition: succeededOrFailed()
+
+  # Publish pytest results
+
+  - task: PublishTestResults@2
+    displayName: 'Publish Testing Results'
+    inputs:
+      testResultsFiles: '**/$(pytest.report)'
+      testRunTitle: 'Python $(python.version) Pytest Testing'
+    condition: succeededOrFailed()
+
+  - task: PublishCodeCoverageResults@1
+    displayName: 'Publish code coverage from $(System.DefaultWorkingDirectory)/**/coverage.xml'
+    inputs:
+      codeCoverageTool: Cobertura
+      summaryFileLocation: '$(System.DefaultWorkingDirectory)/**/coverage.xml'
+      reportDirectory: '$(System.DefaultWorkingDirectory)/**/htmlcov'
+      additionalCodeCoverageFiles: '$(System.DefaultWorkingDirectory)/**/htmlcov/**'
+    condition: succeededOrFailed()
+
+  - script: |
+      echo All tests successful
+    displayName: 'Final check'
+
+- job: 'Publish'
+  dependsOn: 'Test'
+  steps:
+  - task: UsePythonVersion@0
+    displayName: 'Use Python $(python.version)'
+    inputs:
+      versionSpec: '$(python.version)'
+
+  - script: |
+      python -m pip install --upgrade pip && pip install wheel && pip install twine
+    displayName: 'Install dependencies needed for build'
+    
+  - script: 'python setup.py bdist_wheel'
+    displayName: 'Build sp-pdm-models wheel'
+  - template: templates/upload.yml
+    parameters:
+        ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/master') }}:
+          feed: BioenergyFeed 
+
+          

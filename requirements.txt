@@ -1,0 +1,56 @@
+# Azure
+# ------------------------------------------------------------------------------
+azureml-sdk[notebooks]
+azure-mgmt-common
+azure-mgmt-compute
+azure-mgmt-network
+azure-mgmt-nspkg
+
+# Data analysis, scientific computing and visualization
+# ------------------------------------------------------------------------------
+numpy
+pandas
+python-dateutil
+PyYAML
+scikit-learn
+scipy
+seaborn
+matplotlib
+plotly
+pwlf
+tensorflow
+keras==2.3.1
+keras-preprocessing==1.1.0
+tensorflow==2.1.0
+tensorflow-estimator==2.1.0
+sqlalchemy
+jupyterlab
+# Databases
+# ------------------------------------------------------------------------------
+pyodbc
+# Automation
+# ------------------------------------------------------------------------------
+invoke
+# Testing
+# ------------------------------------------------------------------------------
+pytest  # https://github.com/pytest-dev/pytest
+pytest-sugar  # https://github.com/Frozenball/pytest-sugar
+pytest-mock # https://github.com/pytest-dev/pytest-mock/
+pytest-cov # https://pypi.org/project/pytest-cov/
+hypothesis
+# Code quality
+# ------------------------------------------------------------------------------
+isort>=4.3.15 # Sort import statements. We need 4.3.15 to correctly sort dataclasses
+pylint # Linter.
+pylint2junit # Used to generate junit xml reports in azure pipelines https://pypi.org/project/pylint2junit/
+black # Auto formatter.
+autoflake # Automatically removes unused imports and unused variables. See https://github.com/myint/autoflake
+coverage  # https://github.com/nedbat/coveragepy
+mypy  # https://github.com/python/mypy
+bandit # Bandit is a tool designed to find common security issues in Python code. See https://pypi.org/project/bandit/
+# Documentation
+# ------------------------------------------------------------------------------
+recommonmark
+sphinx
+sphinx_rtd_theme
+junitxml
