@@ -1,9 +1,13 @@
+# AnoGen stuff
+*.csv
+figures/
+*.pickle
+
 # Byte-compiled / optimized / DLL files / other files
 __pycache__/
 *.py[cod]
 *$py.class
 *.parquet
-
 # C extensions
 *.so
 
