@@ -1,72 +1,20 @@
-# Overview
-This repository is a starter-kit for developing new models for the SmartPlant-PdM Team. 
-It provides a project structure and some boilerplate code such as the sphinx documentation skeleton 
-to get you started on your model development.
+﻿# Introduction 
+TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project. 
 
-## Directory structure
+# Getting Started
+TODO: Guide users through getting your code up and running on their own system. In this section you can talk about:
+1.	Installation process
+2.	Software dependencies
+3.	Latest releases
+4.	API references
 
-```bash
-├── README.md   <- Root README 
-├── archive     <- Trained and serialized models
-├── azure-pipelines.yml <- yaml file detailing azure pipeline
-├── docs        <- Sphinx docs
-├── make.bat    <- Make.bat sphinx
-├── Makefile    <- MakeFile - mostly sphinx 
-├── reports     <- Generated reports/figures
-├── requirements.txt    <- the requirement file
-├── setup.py    <- Distutils setup file
-├── src         <- Source code
-│   ├── data            <- Loading the data  
-│   ├── data_exploration    <- code for initial data exploration 
-│   ├── deployment    <- Home of deployment scripts adn configs
-│   └── models              <- Scripts to train models and perform predictions 
-├── tasks       <- Invoke tasks
-├── templates   <- template holding e.g. twine upload config
-├── tests       <- pytest
-```
+# Build and Test
+TODO: Describe and show how to build your code and run the tests. 
 
-Most recent SmartPlant PdM wheel that provides base classes for model development can be found [here]((https://dongenergy-p.visualstudio.com/DefaultCollection/Bioenergy/_packaging?_a=package&feed=BioenergyFeed&package=smart-plant-predictive-maintenance&protocolType=PyPI&version=1.9.3))
+# Contribute
+TODO: Explain how other users and developers can contribute to make your code better. 
 
-## HowTo
-
-### Get started
-Clone the repo. Delete the .git folder and start a new git project with ```git init```.
-Install the local requirements
-
-```bash
-conda install --file requirements.txt
-```
-or
-```bash
-pip install -r requirements.txt
-```
-
-Show invoke tasks
-
-```bash
-invoke --list
-```
-
-## Build and Test
-
-### Build documentation
-
-You can build and inspect the documentation using the command
-
-```bash
-invoke sphinx.build
-```
-or 
-
-```bash
-invoke sphinx.run
-```
-
-### Run pytest suite
-
-```bash
-invoke test.pytest
-```
-## Code quality
-
-See SmartPlant PDM team's [coding guidelines](https://dev.azure.com/dongenergy-p/Bioenergy/_wiki/wikis/Bioenergy.wiki?wikiVersion=GBwikiMaster&pagePath=%2FSmartPlant%2FPredictive%20Maintenance%2FCoding%20guidelines&pageId=3585)
+If you want to learn more about creating good readme files then refer the following [guidelines](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-a-readme?view=azure-devops). You can also seek inspiration from the below readme files:
+- [ASP.NET Core](https://github.com/aspnet/Home)
+- [Visual Studio Code](https://github.com/Microsoft/vscode)
+- [Chakra Core](https://github.com/Microsoft/ChakraCore)
