@@ -17,7 +17,8 @@ def upsample_edge_gaussian(z_edge: DataFrame, K: int = 1, stddev: float = 0.1):
 
 
 def upsample_edge_nn(z_edge: DataFrame,
-                     K: int = 1,
+                     N_samples_per_point: int = 1,
+                     k_neighbors: int = 3,
                      add_noise: bool = True,
                      noise_magnitude: float = 1.0):
     z_new_samples = []
@@ -25,9 +26,17 @@ def upsample_edge_nn(z_edge: DataFrame,
     for i in range(z_edge.shape[0]):
         z_edge_without_z_i = z_edge_copy.drop(i).reset_index(drop=True)
         z_i = np.array(z_edge_copy.iloc[i, :]).reshape((1, 2))
-        dist, idx_nn = spatial.cKDTree(z_edge_without_z_i).query(z_i)
-        z_nn = np.array(z_edge_without_z_i.iloc[idx_nn, :])
-        for k in range(K):
+        dists, idx_nns = spatial.cKDTree(z_edge_without_z_i).query(z_i, k=k_neighbors)
+        for k in range(N_samples_per_point):
+            # select one of the k nearest neighbours with probability 1/k
+            if k_neighbors > 1:
+                u = random.random_integers(0, k_neighbors - 1)
+                idx_nn = idx_nns[:, u]
+                dist = dists[:, u]
+            else:
+                dist = dists
+                idx_nn = idx_nns
+            z_nn = np.array(z_edge_without_z_i.iloc[idx_nn, :])
             alpha = random.uniform(0, 1, (1, 1))
             z_new = alpha * (z_nn - z_i) + z_i
             if add_noise:
@@ -37,14 +46,14 @@ def upsample_edge_nn(z_edge: DataFrame,
     return z_new_samples
 
 #
-# def upsample_edge_nn_noisy(z_edge: DataFrame, K: int = 1):
+# def upsample_edge_nn_noisy(z_edge: DataFrame, N_samples_per_point: int = 1):
 #     z_new_samples = []
 #     for i in range(z_edge.shape[0]):
 #         z_edge_without_z_i = z_edge.drop(i).reset_index(drop=True)
 #         z_i = np.array(z_edge.iloc[i, :]).reshape((1, 2))
 #         dist, idx_nn = spatial.cKDTree(z_edge_without_z_i).query(z_i)
 #         z_nn = np.array(z_edge_without_z_i.iloc[idx_nn, :])
-#         for k in range(K):
+#         for k in range(N_samples_per_point):
 #             alpha = random.uniform(0, 1, (1, 1))
 #             z_new = alpha * (z_nn - z_i) + z_i + np.random.normal(0, dist / 2, (1, 2))
 #             z_new_samples.append(z_new)
