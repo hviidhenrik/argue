@@ -22,7 +22,7 @@ from sklearn.manifold import TSNE
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
-from src.data_exploration.AnoGen.utility_functions import (fit_VAE,
+from src.models.AnoGen.utility_functions import (fit_VAE,
                                                            fit_AE,
                                                            append_anomalies,
                                                            predict_AE_anomalies,

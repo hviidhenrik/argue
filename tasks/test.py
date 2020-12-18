@@ -62,7 +62,7 @@ def mypy(command, files="src/ tests/", stdout="no"):
     """
     print(
         f"""
-    Running mypy for identifying python type errors in {files} 
+    Running mypy for identifying python type mse_actual_vs_observed in {files} 
     ===============================================
     """
     )
@@ -76,7 +76,7 @@ def mypy(command, files="src/ tests/", stdout="no"):
 
 @task()
 def pylint(command, files="src/", stdout="no"):
-    """Runs pylint (linter) on all .py files recursively to identify coding errors
+    """Runs pylint (linter) on all .py files recursively to identify coding mse_actual_vs_observed
 
     Arguments:
         command {[type]} -- [description]
@@ -85,7 +85,7 @@ def pylint(command, files="src/", stdout="no"):
     print(
         """
 Running pylint.
-Pylint looks for programming errors, helps enforcing a coding standard,
+Pylint looks for programming mse_actual_vs_observed, helps enforcing a coding standard,
 sniffs for code smells and offers simple refactoring suggestions.
 =======================================================================
 """

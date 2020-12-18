@@ -1,5 +1,5 @@
 import pandas as pd
-from src.models.AnoGen.doping_utils import *
+from src.models.Doping.utils import *
 
 # sample gaussian mixture dist
 # z_train = pd.DataFrame(random.normal(0, 1, (5000, 2)), columns=["z0", "z1"])
@@ -10,7 +10,7 @@ z_train = pd.DataFrame(np.vstack([x1, x2]), columns=["z0", "z1"])
 # plt.show()
 
 z_edge = find_edge_region_kde(z_train)
-# plt.scatter(z_edge.iloc[:, 0], (z_edge.iloc[:, 1]))
+# plt.scatter(df_original_points_to_upsample.iloc[:, 0], (df_original_points_to_upsample.iloc[:, 1]))
 # plt.show()
 
 # sample independent gaussian
@@ -20,7 +20,7 @@ z_train = pd.DataFrame(x1, columns=["z0", "z1"])
 # plt.show()
 
 z_edge = find_edge_region_kde(z_train, 0.03)
-# plt.scatter(z_edge.iloc[:, 0], (z_edge.iloc[:, 1]))
+# plt.scatter(df_original_points_to_upsample.iloc[:, 0], (df_original_points_to_upsample.iloc[:, 1]))
 # plt.show()
 
 # sample complicated distribution
@@ -37,13 +37,13 @@ plt.show()
 ## deliberately oversample this edge region
 
 # use nearest neighbour interpolation to oversample
-z_new_samples = upsample_edge_nn(z_edge, N_samples_per_point=3, k_neighbors=1, add_noise=False, noise_magnitude=0.4)
+z_new_samples = upsample_points_using_nearest_neighbors(z_edge, N_new_samples_to_add_per_original_point=3, number_of_neighbours_to_use_per_point=1, add_noise_to_new_samples=False, noise_magnitude=0.4)
 plt.scatter(z_edge.iloc[:, 0], (z_edge.iloc[:, 1]), label="normal")
 plt.scatter(z_new_samples[:, 0], z_new_samples[:, 1], s=10, alpha=0.7, c="black", label="samples")
 plt.legend()
 plt.show()
 
-z_new_samples = upsample_edge_nn(z_edge, N_samples_per_point=3, k_neighbors=3, add_noise=True, noise_magnitude=0.6)
+z_new_samples = upsample_points_using_nearest_neighbors(z_edge, N_new_samples_to_add_per_original_point=3, number_of_neighbours_to_use_per_point=3, add_noise_to_new_samples=True, noise_magnitude=0.6)
 plt.scatter(z_edge.iloc[:, 0], (z_edge.iloc[:, 1]), label="normal")
 plt.scatter(z_new_samples[:, 0], z_new_samples[:, 1], s=10, alpha=0.7, c="black", label="samples")
 plt.legend()

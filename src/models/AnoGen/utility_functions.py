@@ -8,6 +8,7 @@ from keras.callbacks import EarlyStopping, LambdaCallback
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import *
 import numpy as np
 from numpy.random import normal
 from tensorflow.python.ops import math_ops
@@ -25,7 +26,7 @@ def nll(y_true, y_pred):
 
 class KLDivergenceLayer(Layer):
     """ Identity transform layer that adds KL divergence
-    to the final model loss.
+    to the final model loss_function.
     """
 
     def __init__(self, warm_up=False, beta=1.0, *args, **kwargs):
@@ -141,7 +142,7 @@ def fit_VAE(x_train_scaled,
         callbacks=callbacks
     )
     if plot_history:
-        # Training loss plot
+        # Training loss_function plot
         fig, ax = plt.subplots()
         hist_df = pd.DataFrame(hist.history)
         hist_df.plot(ax=ax)
@@ -152,243 +153,118 @@ def fit_VAE(x_train_scaled,
 
     return encoder, decoder, vae
 
+def fit_AE(x_train_scaled,
+           x_val_scaled,
+           intermediate_dim=9,
+           latent_dim=2,
+           batch_size=100,
+           epochs=10,
+           early_stopping=True,
+           plot_history=False,
+           plot_latent=True,
+           activation="tanh"):
+    """
+    Trains an ordinary autoencoder for anomaly detection
 
-# def fit_VAE(x_train_scaled,
-#             x_val_scaled,
-#             intermediate_dim=9,
-#             latent_dim=2,
-#             batch_size=100,
-#             epochs=10,
-#             early_stopping=True,
-#             kl_warmup=10,
-#             latent_stddev=1.0,
-#             plot_history=False,
-#             activation="elu"):
-#     """
-#     Trains a variational autoencoder
-#
-#     """
-#
-#     callbacks = []
-#     if early_stopping:
-#         callbacks.append(EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True))
-#
-#     kl_beta = False
-#     if kl_warmup:
-#         kl_beta = K.variable(1.0, name="kl_beta")
-#         kl_beta._trainable = False
-#         callbacks.append(LambdaCallback(
-#             on_epoch_begin=lambda epoch, logs: K.set_value(kl_beta, K.min([epoch / kl_warmup, 1]))
-#         )
-#         )
-#
-#     # Specify hyperparameters
-#     original_dim = x_train_scaled.shape[1]
-#
-#     # Encoder
-#     x = Input(shape=(original_dim,))
-#     h = Dropout(0.1)(x)
-#     h = Dense(intermediate_dim, activation=activation)(h)
-#     # h = BatchNormalization()(h)
-#     h = Dense(intermediate_dim - 2, activation=activation)(h)
-#     # h = BatchNormalization()(h)
-#     h = Dropout(0.1)(h)
-#     h = Dense(intermediate_dim - 4, activation=activation)(h)
-#     encoder = Model(inputs=x, outputs=h)
-#     h_out = encoder(x)
-#
-#     # bottleneck 1
-#     h_in = Input(shape=(latent_dim, ))
-#     z_mu = Dense(latent_dim)(h_in)
-#     z_log_var = Dense(latent_dim)(h_in)
-#     z_mu, z_log_var = KLDivergenceLayer(beta=kl_beta, warm_up=kl_warmup > 0)([z_mu, z_log_var])
-#     # Reparametrization trick
-#     z_sigma = Lambda(lambda t: K.exp(.5 * t))(z_log_var)
-#     eps = Input(tensor=K.random_normal(shape=(K.shape(x)[0], latent_dim),
-#                                        mean=0,
-#                                        stddev=latent_stddev))
-#     z_eps = Multiply()([z_sigma, eps])
-#     z = Add()([z_mu, z_eps])
-#     latent1 = Model(inputs=[h_in, eps], outputs=z)
-#     z1 = latent1([h_out, eps])
-#
-#     # Decoder is MLP specified as single Keras Sequential Layer
-#     z_in = Input(shape=(latent_dim,))
-#     h = Dense(latent_dim, activation=activation)(z_in)
-#     h = Dense(latent_dim, activation=activation)(h)
-#
-#     # # bottleneck 2
-#     z_mu = Dense(latent_dim)(h)
-#     z_log_var = Dense(latent_dim)(h)
-#     z_mu, z_log_var = KLDivergenceLayer(beta=kl_beta, warm_up=kl_warmup > 0)([z_mu, z_log_var])
-#     # Reparametrization trick
-#     z_sigma = Lambda(lambda t: K.exp(.5 * t))(z_log_var)
-#
-#     eps = Input(tensor=K.random_normal(shape=(K.shape(x)[0], latent_dim),
-#                                        mean=0,
-#                                        stddev=latent_stddev))
-#     z_eps = Multiply()([z_sigma, eps])
-#     z = Add()([z_mu, z_eps])
-#     latent2 = Model(inputs=[z_in, eps], outputs=z)
-#     z2 = latent2([z1, eps])
-#
-#     # This defines the Encoder which takes noise and input, and outputs
-#     # the latent variable z
-#     # encoder = Model(inputs=[x, eps], outputs=z)
-#
-#     # Decoder is MLP specified as single Keras Sequential Layer
-#     z_out = Input(shape=(latent_dim,))
-#     h = Dropout(0.1)(z_out)
-#     h = Dense(intermediate_dim - 4, input_dim=latent_dim, activation=activation)(h)
-#     h = Dropout(0.1)(h)
-#     # h = BatchNormalization()(h)
-#     h = Dense(intermediate_dim - 2, input_dim=latent_dim, activation=activation)(h)
-#     # h = BatchNormalization()(h)
-#     h = Dense(intermediate_dim, input_dim=latent_dim, activation=activation)(h)
-#     h = Dropout(0.1)(h)
-#     x_hat = Dense(original_dim, activation='tanh')(h)
-#     decoder = Model(inputs=z_out, outputs=x_hat)
-#
-#     x_pred = decoder(z2)
-#
-#     vae = Model(inputs=[x, eps], outputs=x_pred, name='vae')
-#     vae.compile(optimizer='adam', loss="mse")
-#
-#     hist = vae.fit(
-#         x_train_scaled,
-#         x_train_scaled,
-#         shuffle=True,
-#         epochs=epochs,
-#         batch_size=batch_size,
-#         validation_data=(x_val_scaled, x_val_scaled),
-#         verbose=2,
-#         callbacks=callbacks
-#     )
-#     if plot_history:
-#         # Training loss plot
-#         fig, ax = plt.subplots()
-#         hist_df = pd.DataFrame(hist.history)
-#         hist_df.plot(ax=ax)
-#         plt.suptitle("Variational Autoencoder learning curve")
-#         ax.set_ylabel('NELBO')
-#         ax.set_xlabel('# epochs')
-#         plt.show()
-#
-#     return encoder, decoder, vae
+    """
+
+    callbacks = []
+    if early_stopping:
+        callbacks.append(EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True))
+
+    # Specify hyperparameters
+    original_dim = x_train_scaled.shape[1]
+
+    # Encoder
+    x = Input(shape=(original_dim,))
+    # h = Dropout(0.1)(x)
+    h = Dense(intermediate_dim, activation=activation)(x)
+    # h = BatchNormalization()(h)
+    h = Dense(intermediate_dim - 2, activation=activation)(h)
+    # h = BatchNormalization()(h)
+    # h = Dropout(0.1)(h)
+    h = Dense(intermediate_dim - 4, activation=activation)(h)
+
+    # bottleneck
+    latent = Dense(latent_dim, activation=activation)(h)
+
+    # This defines the Encoder which takes noise and input, and outputs
+    # the latent variable z
+    encoder = Model(inputs=x, outputs=latent)
+
+    # Decoder is MLP specified as single Keras Sequential Layer
+    decoder = Sequential([
+        Dense(intermediate_dim - 4, input_dim=latent_dim, activation=activation),
+        # Dropout(0.1),
+        # BatchNormalization(),
+        Dense(intermediate_dim - 2, input_dim=latent_dim, activation=activation),
+        # BatchNormalization(),
+        Dense(intermediate_dim, input_dim=latent_dim, activation=activation),
+        # Dropout(0.1),
+        Dense(original_dim, activation='tanh')
+    ])
+
+    x_pred = decoder(latent)
+
+    autoencoder = Model(inputs=x, outputs=x_pred, name='ae')
+    autoencoder.compile(optimizer='adam', loss="mse_actual_vs_observed")
+
+    hist = autoencoder.fit(
+        x_train_scaled,
+        x_train_scaled,
+        shuffle=True,
+        epochs=epochs,
+        batch_size=batch_size,
+        validation_data=(x_val_scaled, x_val_scaled),
+        verbose=2,
+        callbacks=callbacks
+    )
+
+    preds_train = autoencoder.predict(x_train_scaled)
+    preds_val = autoencoder.predict(x_val_scaled)
+    mse_train = np.mean(np.power(x_train_scaled - preds_train, 2), axis=1)
+    mse_val = np.mean(np.power(x_val_scaled - preds_val, 2), axis=1)
+
+    z_train = encoder.predict(x_train_scaled)
+    if plot_latent:
+        title_latent = "Autoencoder latent space (training data)"
+        if latent_dim > 2:
+            reduction_method = "pca"
+            if reduction_method.lower() == "pca":
+                pca = PCA(n_components=2).fit(z_train)
+                z_train = pca.transform(z_train)
+                var_expl = 100 * pca.explained_variance_ratio_.sum()
+                title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
+            else:
+                z_train = TSNE(n_components=2, learning_rate=75).fit_transform(z_train)
+                title_latent = title_latent + "\nVisualized using t-SNE"
+
+        plt.scatter(z_train[:, 0], z_train[:, 1], s=10)
+        plt.xlabel("z_0")
+        plt.ylabel("z_1")
+        plt.title(title_latent)
+        plt.show()
+
+    if plot_history:
+        # Training loss_function plot
+        fig, ax = plt.subplots()
+        hist_df = pd.DataFrame(hist.history)
+        hist_df.plot(ax=ax)
+        plt.suptitle("Autoencoder learning curve")
+        ax.set_ylabel('Loss')
+        ax.set_xlabel('# epochs')
+        plt.show()
+    return autoencoder, mse_train, mse_val, z_train
 
 
-# def fit_AE(x_train_scaled,
-#            x_val_scaled,
-#            intermediate_dim=9,
-#            latent_dim=2,
-#            batch_size=100,
-#            epochs=10,
-#            early_stopping=True,
-#            plot_history=False,
-#            plot_latent=True,
-#            activation="tanh"):
-#     """
-#     Trains an ordinary autoencoder for anomaly detection
-#
-#     """
-#
-#     callbacks = []
-#     if early_stopping:
-#         callbacks.append(EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True))
-#
-#     # Specify hyperparameters
-#     original_dim = x_train_scaled.shape[1]
-#
-#     # Encoder
-#     x = Input(shape=(original_dim,))
-#     # h = Dropout(0.1)(x)
-#     h = Dense(intermediate_dim, activation=activation)(x)
-#     # h = BatchNormalization()(h)
-#     h = Dense(intermediate_dim - 2, activation=activation)(h)
-#     # h = BatchNormalization()(h)
-#     # h = Dropout(0.1)(h)
-#     h = Dense(intermediate_dim - 4, activation=activation)(h)
-#
-#     # bottleneck
-#     latent = Dense(latent_dim, activation=activation)(h)
-#
-#     # This defines the Encoder which takes noise and input, and outputs
-#     # the latent variable z
-#     encoder = Model(inputs=x, outputs=latent)
-#
-#     # Decoder is MLP specified as single Keras Sequential Layer
-#     decoder = Sequential([
-#         Dense(intermediate_dim - 4, input_dim=latent_dim, activation=activation),
-#         # Dropout(0.1),
-#         # BatchNormalization(),
-#         Dense(intermediate_dim - 2, input_dim=latent_dim, activation=activation),
-#         # BatchNormalization(),
-#         Dense(intermediate_dim, input_dim=latent_dim, activation=activation),
-#         # Dropout(0.1),
-#         Dense(original_dim, activation='tanh')
-#     ])
-#
-#     x_pred = decoder(latent)
-#
-#     autoencoder = Model(inputs=x, outputs=x_pred, name='ae')
-#     autoencoder.compile(optimizer='adam', loss="mse")
-#
-#     hist = autoencoder.fit(
-#         x_train_scaled,
-#         x_train_scaled,
-#         shuffle=True,
-#         epochs=epochs,
-#         batch_size=batch_size,
-#         validation_data=(x_val_scaled, x_val_scaled),
-#         verbose=2,
-#         callbacks=callbacks
-#     )
-#
-#     preds_train = autoencoder.predict(x_train_scaled)
-#     preds_val = autoencoder.predict(x_val_scaled)
-#     mse_train = np.mean(np.power(x_train_scaled - preds_train, 2), axis=1)
-#     mse_val = np.mean(np.power(x_val_scaled - preds_val, 2), axis=1)
-#
-#     z_train = encoder.predict(x_train_scaled)
-#     if plot_latent:
-#         title_latent = "Autoencoder latent space (training data)"
-#         if latent_dim > 2:
-#             reduction_method = "pca"
-#             if reduction_method.lower() == "pca":
-#                 pca = PCA(n_components=2).fit(z_train)
-#                 z_train = pca.transform(z_train)
-#                 var_expl = 100 * pca.explained_variance_ratio_.sum()
-#                 title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
-#             else:
-#                 z_train = TSNE(n_components=2, learning_rate=75).fit_transform(z_train)
-#                 title_latent = title_latent + "\nVisualized using t-SNE"
-#
-#         plt.scatter(z_train[:, 0], z_train[:, 1], s=10)
-#         plt.xlabel("z_0")
-#         plt.ylabel("z_1")
-#         plt.title(title_latent)
-#         plt.show()
-#
-#     if plot_history:
-#         # Training loss plot
-#         fig, ax = plt.subplots()
-#         hist_df = pd.DataFrame(hist.history)
-#         hist_df.plot(ax=ax)
-#         plt.suptitle("Autoencoder learning curve")
-#         ax.set_ylabel('Loss')
-#         ax.set_xlabel('# epochs')
-#         plt.show()
-#     return autoencoder, mse_train, mse_val, z_train
-#
-#
-# def predict_AE_anomalies(autoencoder, x_predict_scaled, mse_threshold):
-#     preds = autoencoder.predict(x_predict_scaled)
-#     mse_predicted = np.mean(np.power(x_predict_scaled - preds, 2), axis=1)
-#     anomalies = [data_point_mse > mse_threshold for data_point_mse in mse_predicted]
-#     anomalies = np.array(anomalies).astype(int)
-#     df_anomalies = pd.DataFrame({"AE_mse": mse_predicted,
-#                                  "AE_anomaly": anomalies})
-#     return preds, df_anomalies
+def predict_AE_anomalies(autoencoder, x_predict_scaled, mse_threshold):
+    preds = autoencoder.predict(x_predict_scaled)
+    mse_predicted = np.mean(np.power(x_predict_scaled - preds, 2), axis=1)
+    anomalies = [data_point_mse > mse_threshold for data_point_mse in mse_predicted]
+    anomalies = np.array(anomalies).astype(int)
+    df_anomalies = pd.DataFrame({"AE_mse": mse_predicted,
+                                 "AE_anomaly": anomalies})
+    return preds, df_anomalies
 
 
 def load_VAE(filenames):
@@ -546,3 +422,88 @@ def append_anomalies(df, df_anomalies):
     df_concatted = pd.concat([df_copy, df_anomalies_copy])
     df_concatted.index = pd.to_datetime(df_concatted.index)
     return df_concatted
+
+def compute_performance_metrics(y_true, y_predicted):
+    """
+    Computes metrics to evaluate the ability and skill of an anomaly detection algorithm
+    given known anomalies and nominal observations.
+
+    For the confusion matrix, the following values can be obtained:
+                       ACTUAL
+                     |    1   |   0
+            ----------------------------
+    PREDICTED     1  |    TP    |  FP
+            ----------------------------
+                  0  |    FN    |  TN
+
+    FPR                        = FP / (FP + TN)
+    sensitivity (TPR)          = TP / (TP + FN)
+    precision (PPV)            = TP / (TP + FP)
+    False discovery rate (FDR) = FP / (FP + TP)
+
+
+    """
+    TN, FP, FN, TP = confusion_matrix(y_true, y_predicted).ravel()
+    N_total = len(y_true)
+    N_positives = np.sum(y_true)
+    N_negatives = N_total - N_positives
+
+    if TP == 0 | TN == 0:
+        wrong_prediction_rate = (N_positives - TP + FP + FN + N_negatives - TN) / N_total
+        return wrong_prediction_rate
+    else:
+        # Sensitivity, hit rate, recall, or true positive rate
+        TPR = TP / N_positives
+        # Specificity or true negative rate
+        TNR = TN / N_negatives
+        # Precision or positive predictive value
+        PPV = TP / (TP + FP)
+        # Negative predictive value
+        NPV = TN / (TN + FN)  # TODO debug: "RuntimeWarning: invalid value encountered in longlong_scalars"
+        # Fall out or false positive rate
+        FPR = FP / N_negatives
+        # False negative rate
+        FNR = FN / N_positives
+        # False discovery rate
+        FDR = FP / (FP + TP)
+        # accuracy
+        ACC = (TP + TN) / (N_positives + N_negatives)
+        # balanced accuracy
+        balanced_ACC = (TPR + TNR) / 2
+        # balanced false rate (BFR)
+        BFR = (FPR + FNR) / 2  # could consider making a weighted average here with higher weight on e.g. FPR
+        # F1 score
+        F1 = 2 * TP / (2 * TP + FP + FN)
+        # Area under curve
+        # AUC = roc_auc_score(y_true, y_predicted)
+        # "mean Average Precision (mAP)"
+        # AP = average_precision_score(y_true, y_predicted)
+        metrics_dict = {"TP": TP, "TN": TN, "FP": FP, "FN": FN, "TPR": TPR, "TNR": TNR,
+                        "precision:": PPV, "NPV": NPV,
+                        "FPR": FPR, "FNR": FNR, "FDR": FDR, "accuracy": ACC,
+                        "balanced_ACC": balanced_ACC,
+                        "BFR": BFR, "F1": F1,
+                        # "AUC": AUC, "AP": AP
+                        }
+    # df_metrics = pd.DataFrame(metrics_dict, index=[threshold])
+    return metrics_dict
+
+def evaluate_predictions(labels_true, labels_predicted, print_results=True):
+
+    if np.sum(labels_true) == 0 or np.sum(labels_true)/len(labels_true) == 1:
+        F1 = f1_score(labels_true, labels_predicted)
+        print(f"F1: {F1}")
+        return F1
+    else:
+        metrics = compute_performance_metrics(labels_true, labels_predicted)
+        F1 = metrics["F1"]
+        FPR = metrics["FPR"]
+        TPR = metrics["TPR"]
+
+        if print_results:
+            print(f"FPR: {FPR}")
+            print(f"TPR: {TPR}")
+            print(f"F1-score: {F1}")
+            print("Confusion matrix:\n", confusion_matrix(labels_true, labels_predicted))
+        return F1, FPR, TPR
+

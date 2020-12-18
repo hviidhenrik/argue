@@ -52,7 +52,7 @@ class AdversarialAutoencoder():
 
         # The adversarial_autoencoder model  (stacked generator and discriminator)
         self.adversarial_autoencoder = Model(img, [reconstructed_img, validity])
-        self.adversarial_autoencoder.compile(loss=['mse', 'binary_crossentropy'],
+        self.adversarial_autoencoder.compile(loss=['mse_actual_vs_observed', 'binary_crossentropy'],
             loss_weights=[0.999, 0.001],
             optimizer=optimizer)
 
@@ -68,10 +68,10 @@ class AdversarialAutoencoder():
         h = Dense(512)(h)
         h = LeakyReLU(alpha=0.2)(h)
         latent_repr = Dense(self.latent_dim)(h)
-        # mu = Dense(self.latent_dim)(h)
-        # log_var = Dense(self.latent_dim)(h)
+        # mu = Dense(self.latent_space_dimension)(h)
+        # log_var = Dense(self.latent_space_dimension)(h)
         # latent_repr = merge([mu, log_var],
-        #         mode=lambda p: p[0] + K.random_normal(K.shape(p[0])) * K.exp(p[1] / 2),
+        #         mode=lambda p: p[0] + N_new_samples_to_add_per_original_point.random_normal(N_new_samples_to_add_per_original_point.shape(p[0])) * N_new_samples_to_add_per_original_point.exp(p[1] / 2),
         #         output_shape=lambda p: p[0])
 
         return Model(img, latent_repr)
@@ -149,7 +149,7 @@ class AdversarialAutoencoder():
             g_loss = self.adversarial_autoencoder.train_on_batch(imgs, [imgs, valid])
 
             # Plot the progress
-            print ("%d [D loss: %f, acc: %.2f%%] [G loss: %f, mse: %f]" % (epoch, d_loss[0], 100*d_loss[1], g_loss[0], g_loss[1]))
+            print ("%d [D loss_function: %f, acc: %.2f%%] [G loss_function: %f, mse_actual_vs_observed: %f]" % (epoch, d_loss[0], 100*d_loss[1], g_loss[0], g_loss[1]))
 
             # If at save interval => save generated image samples
             if epoch % sample_interval == 0:

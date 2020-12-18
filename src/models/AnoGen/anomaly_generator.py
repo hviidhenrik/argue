@@ -16,26 +16,28 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import confusion_matrix, average_precision_score, roc_auc_score, roc_curve
 from pdm.models.clustering.dbscan import DBSCANClustering
+from dataclasses import dataclass
+
 
 from src.models.AnoGen.utility_functions import fit_VAE
 
 
 class AnomalyDetectorAutoencoder:
     def __init__(self,
-                 intermediate_dim,
-                 latent_dim
+                 first_hidden_layer_dimension,
+                 latent_space_dimension
                  ):
-        self.latent_dim = latent_dim
-        self.intermediate_dim = intermediate_dim
-        self.model = None
+        self.latent_space_dimension = latent_space_dimension
+        self.first_hidden_layer_dimension = first_hidden_layer_dimension
+        self.keras_model = None
         self.anomaly_threshold = None
-        self.mse_train = None
-        self.mse_val = None
+        self.mse_train_set_actual_vs_predicted = None
+        self.mse_val_set_actual_vs_predicted = None
         self.epochs = None
         self.early_stopping = None
-        self.loss = None
+        self.loss_function = None
         self.batch_size = None
-        self.activation = None
+        self.activation_function = None
         self.scaler = None
 
     def fit(self,
@@ -43,11 +45,11 @@ class AnomalyDetectorAutoencoder:
             df_x_val,
             epochs=200,
             early_stopping=True,
-            loss="mse",
+            loss_function="mse",
             batch_size=128,
-            activation="tanh",
-            plot_history=False,
-            plot_latent=False):
+            activation_function="tanh",
+            plot_learning_curve=False,
+            plot_latent_space=False):
         """
         Trains an ordinary autoencoder for anomaly detection
         """
@@ -56,48 +58,28 @@ class AnomalyDetectorAutoencoder:
         x_train_scaled = self.scaler.fit_transform(df_x_train)
         x_val_scaled = self.scaler.transform(df_x_val)
 
-        callbacks = []
+        callbacks_to_keras_model = []
         if early_stopping:
-            callbacks.append(EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True))
+            callbacks_to_keras_model.append(EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True))
 
-        # Specify hyperparameters
-        original_dim = x_train_scaled.shape[1]
+        feature_space_dimension = x_train_scaled.shape[1]
 
-        # Encoder
-        x = Input(shape=(original_dim,))
-        # h = Dropout(0.1)(x)
-        h = Dense(self.intermediate_dim, activation=activation)(x)
-        # h = BatchNormalization()(h)
-        h = Dense(self.intermediate_dim - 2, activation=activation)(h)
-        # h = BatchNormalization()(h)
-        # h = Dropout(0.1)(h)
-        h = Dense(self.intermediate_dim - 4, activation=activation)(h)
+        x_input = Input(shape=(feature_space_dimension,))
+        hidden_layer = Dense(self.first_hidden_layer_dimension, activation=activation_function)(x_input)
+        hidden_layer = Dense(self.first_hidden_layer_dimension - 2, activation=activation_function)(hidden_layer)
+        hidden_layer = Dense(self.first_hidden_layer_dimension - 4, activation=activation_function)(hidden_layer)
+        latent_layer = Dense(self.latent_space_dimension, activation=activation_function)(hidden_layer)
+        hidden_layer = Dense(self.first_hidden_layer_dimension - 4, activation=activation_function)(latent_layer)
+        hidden_layer = Dense(self.first_hidden_layer_dimension - 2, activation=activation_function)(hidden_layer)
+        hidden_layer = Dense(self.first_hidden_layer_dimension, activation=activation_function)(hidden_layer)
+        x_input_reconstructed = Dense(feature_space_dimension, activation=activation_function)(hidden_layer)
 
-        # bottleneck
-        latent = Dense(self.latent_dim, activation=activation)(h)
+        encoder_model = Model(inputs=x_input, outputs=latent_layer)
 
-        # This defines the Encoder which takes noise and input, and outputs
-        # the latent variable z
-        encoder = Model(inputs=x, outputs=latent)
+        autoencoder_model = Model(inputs=x_input, outputs=x_input_reconstructed, name='ae')
+        autoencoder_model.compile(optimizer='adam', loss=loss_function)
 
-        # Decoder is MLP specified as single Keras Sequential Layer
-        decoder = Sequential([
-            Dense(self.intermediate_dim - 4, input_dim=self.latent_dim, activation=activation),
-            # Dropout(0.1),
-            # BatchNormalization(),
-            Dense(self.intermediate_dim - 2, input_dim=self.latent_dim, activation=activation),
-            # BatchNormalization(),
-            Dense(self.intermediate_dim, input_dim=self.latent_dim, activation=activation),
-            # Dropout(0.1),
-            Dense(original_dim, activation='tanh')
-        ])
-
-        x_pred = decoder(latent)
-
-        autoencoder = Model(inputs=x, outputs=x_pred, name='ae')
-        autoencoder.compile(optimizer='adam', loss=loss)
-
-        hist = autoencoder.fit(
+        hist = autoencoder_model.fit(
             x_train_scaled,
             x_train_scaled,
             shuffle=False,
@@ -105,18 +87,18 @@ class AnomalyDetectorAutoencoder:
             batch_size=batch_size,
             validation_data=(x_val_scaled, x_val_scaled),
             verbose=2,
-            callbacks=callbacks
+            callbacks=callbacks_to_keras_model
         )
 
-        preds_train = autoencoder.predict(x_train_scaled)
-        preds_val = autoencoder.predict(x_val_scaled)
-        mse_train = np.mean(np.power(x_train_scaled - preds_train, 2), axis=1)
-        mse_val = np.mean(np.power(x_val_scaled - preds_val, 2), axis=1)
+        train_set_predictions = autoencoder_model.predict(x_train_scaled)
+        val_set_predictions = autoencoder_model.predict(x_val_scaled)
+        mse_train_set_actual_vs_predicted = np.mean(np.power(x_train_scaled - train_set_predictions, 2), axis=1)
+        mse_val_set_actual_vs_predicted = np.mean(np.power(x_val_scaled - val_set_predictions, 2), axis=1)
 
-        if plot_latent:
-            z_train = encoder.predict(x_train_scaled)
+        if plot_latent_space:
+            z_train = encoder_model.predict(x_train_scaled)
             title_latent = "Autoencoder latent space (training data)"
-            if self.latent_dim > 2:
+            if self.latent_space_dimension > 2:
                 reduction_method = "pca"
                 if reduction_method.lower() == "pca":
                     pca = PCA(n_components=2).fit(z_train)
@@ -132,8 +114,7 @@ class AnomalyDetectorAutoencoder:
             plt.title(title_latent)
             plt.show()
 
-        if plot_history:
-            # Training loss plot
+        if plot_learning_curve:
             fig, ax = plt.subplots()
             hist_df = pd.DataFrame(hist.history)
             hist_df.plot(ax=ax)
@@ -142,26 +123,28 @@ class AnomalyDetectorAutoencoder:
             ax.set_xlabel('# epochs')
             plt.show()
 
-        self.model = autoencoder
-        self.mse_train = mse_train
-        self.mse_val = mse_val
+        self.keras_model = autoencoder_model
+        self.mse_train_set_actual_vs_predicted = mse_train_set_actual_vs_predicted
+        self.mse_val_set_actual_vs_predicted = mse_val_set_actual_vs_predicted
         self.epochs = epochs
         self.early_stopping = early_stopping
-        self.loss = loss
+        self.loss_function = loss_function
         self.batch_size = batch_size
-        self.activation = activation
+        self.activation_function = activation_function
         return self
 
-    def predict(self, df_x_predict, anomaly_threshold):
-        x_predict_scaled = self.scaler.transform(df_x_predict)
-        x_predicted_scaled = self.model.predict(x_predict_scaled)
-        mse_predicted = np.mean(np.power(np.array(x_predict_scaled) - x_predicted_scaled, 2), axis=1)
-        anomalies = [data_point_mse > anomaly_threshold for data_point_mse in mse_predicted]
-        anomalies = np.array(anomalies).astype(int)
-        df_anomalies = pd.DataFrame({"AE_mse": mse_predicted,
-                                     "AE_anomaly": anomalies})
-        self.anomaly_threshold = anomaly_threshold
-        return df_anomalies
+    def predict_new_and_return_mse(self, x_unscaled_to_predict):
+        x_scaled_to_predict = self.scaler.transform(x_unscaled_to_predict)
+        x_scaled_predicted = self.keras_model.predict(x_scaled_to_predict)
+        mse_actual_vs_predicted = np.mean(np.power(np.array(x_scaled_to_predict) - x_scaled_predicted, 2), axis=1)
+        df_mse_actual_vs_predicted = pd.DataFrame({"mse_actual_vs_observed": mse_actual_vs_predicted})
+        return df_mse_actual_vs_predicted
+
+    @staticmethod
+    def compute_binary_anomalies_from_mse_and_threshold(mse_actual_vs_observed, anomaly_threshold):
+        boolean_anomaly_labels = [data_point_mse > anomaly_threshold for data_point_mse in mse_actual_vs_observed]
+        binary_anomaly_labels = np.array(boolean_anomaly_labels).astype(int)
+        return binary_anomaly_labels
 
     @staticmethod
     def plot_predictions(df_anomaly_predictions):
@@ -243,7 +226,7 @@ class AnomalyGenerator:
             columns=self.latent_cols
         )
 
-        # fit clustering model to recognize the learned latent space and filter away samples that are
+        # fit clustering keras_model to recognize the learned latent space and filter away samples that are
         # overlapping with this learned normal condition
         self.clustering = DBSCANClustering(cols_to_include=self._df_vae_latent_space.columns.values,
                                            epsilon=dbscan_epsilon,
@@ -291,7 +274,7 @@ class AnomalyGenerator:
             # if df_sampled_anomalies.shape[0] == 0:
             #     continue
 
-            # use the fitted clustering model to filter away samples that are in the part of latent space
+            # use the fitted clustering keras_model to filter away samples that are in the part of latent space
             # that represents the normal condition learned by the VAE
             df_outside_nominal = self.clustering.predict(df_sampled_anomalies)
             df_sampled_anomalies = pd.concat([df_sampled_anomalies, df_outside_nominal], axis=1)
@@ -453,7 +436,7 @@ class AnomalyEvaluator:
 
 
         """
-        # cnf_matrix = confusion_matrix(anomaly_truths, anomaly_predictions)
+        # cnf_matrix = confusion_matrix(y_true, y_predicted)
         TN, FP, FN, TP = confusion_matrix(anomaly_truths, anomaly_predicted).ravel()
         N_total = anomaly_truths.shape[0]
         N_positives = anomaly_truths.sum()
@@ -715,7 +698,7 @@ class DetectorEvaluator:
 
 
         """
-        # cnf_matrix = confusion_matrix(anomaly_truths, anomaly_predictions)
+        # cnf_matrix = confusion_matrix(y_true, y_predicted)
         TN, FP, FN, TP = confusion_matrix(anomaly_truths, anomaly_predictions).ravel()
         N_total = anomaly_truths.shape[0]
         N_positives = anomaly_truths.sum()
@@ -822,7 +805,7 @@ class DetectorEvaluator:
         df_test = self._append_anomalies(df_test_nominal, df_test_anomalous)
         df_anomaly_truths = df_test["synthetic_anomaly"]
         if anomaly_mse_quantiles is not None:
-            anomaly_thresholds = [np.quantile(anomaly_detector.mse_val, q) for q in anomaly_mse_quantiles]
+            anomaly_thresholds = [np.quantile(anomaly_detector.mse_val_set_actual_vs_predicted, q) for q in anomaly_mse_quantiles]
 
         for threshold in anomaly_thresholds:
             df_anomaly_preds = anomaly_detector.predict(
@@ -866,6 +849,43 @@ class DetectorEvaluator:
         plt.legend()
         plt.show()
 
+@dataclass
+class DataProvider:
+
+    _scaler = None
+    x_train = None
+    x_val = None
+    x_test = None
+
+    def get_local_pump_data(self, filename="train-data-large.csv", dropna=True):
+        df = pd.read_csv(filename, index_col="timelocal")
+        if dropna:
+            df = df.dropna()
+        return df
+
+    def train_val_test_split(self, df, train_size=0.7, val_size=0.2, test_size=0.1, shuffle=False):
+        x_train, x_test = train_test_split(df, test_size=val_size + test_size, shuffle=shuffle)
+        x_test, x_val = train_test_split(x_test, test_size=val_size / (val_size + test_size), shuffle=shuffle)
+        self.x_train = x_train
+        self.x_val = x_val
+        self.x_test = x_test
+        return x_train, x_val, x_test
+
+    def scale(self, df=None, scaler=MinMaxScaler()):
+        if self._scaler is None:
+            self._scaler = scaler
+        if df is None:
+            x_train_scaled = pd.DataFrame(self._scaler.fit_transform(self.x_train), columns=self.x_train.columns)
+            x_val_scaled = pd.DataFrame(self._scaler.transform(self.x_val), columns=self.x_train.columns)
+            x_test_scaled = pd.DataFrame(self._scaler.transform(self.x_test), columns=self.x_train.columns)
+            return x_train_scaled, x_val_scaled, x_test_scaled
+        else:
+            df_scaled = pd.DataFrame(self._scaler.fit_transform(df), columns=df.columns)
+            return df_scaled
+
+    def get_scaler(self):
+        return self._scaler
+
 
 if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
@@ -891,7 +911,7 @@ if __name__ == "__main__":
     x_val_scaled = scaler_train.transform(x_val)
     x_test_scaled = scaler_train.transform(x_test)
 
-    detector = AnomalyDetectorAutoencoder(latent_dim=2, intermediate_dim=12)
+    detector = AnomalyDetectorAutoencoder(latent_space_dimension=2, first_hidden_layer_dimension=12)
 
     load_model = True
     # load_model = False
@@ -900,10 +920,10 @@ if __name__ == "__main__":
     else:
         detector.fit(x_train_scaled,
                      x_val_scaled,
-                     plot_history=True)
+                     plot_learning_curve=True)
         detector.save()
 
-    threshold = np.quantile(detector.mse_train, 0.99)
+    threshold = np.quantile(detector.mse_train_set_actual_vs_predicted, 0.99)
 
     # predict test set and synthesized anomalies
     df_test_anom_preds, x_test_preds = detector.predict(x_test_scaled, threshold)
