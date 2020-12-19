@@ -3,162 +3,13 @@ from typing import List, Dict
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import keras
-import pickle
-from keras.callbacks import EarlyStopping
-from keras.layers import Input, Dense
-from keras.models import Model, Sequential
 from numpy.random import normal
+from pdm.models.clustering.dbscan import DBSCANClustering
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-from sklearn.metrics import roc_curve
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import confusion_matrix, average_precision_score, roc_auc_score, roc_curve
-from pdm.models.clustering.dbscan import DBSCANClustering
-from dataclasses import dataclass
 
-
-from src.models.AnoGen.utility_functions import fit_VAE
-
-
-class AnomalyDetectorAutoencoder:
-    def __init__(self,
-                 first_hidden_layer_dimension,
-                 latent_space_dimension
-                 ):
-        self.latent_space_dimension = latent_space_dimension
-        self.first_hidden_layer_dimension = first_hidden_layer_dimension
-        self.keras_model = None
-        self.anomaly_threshold = None
-        self.mse_train_set_actual_vs_predicted = None
-        self.mse_val_set_actual_vs_predicted = None
-        self.epochs = None
-        self.early_stopping = None
-        self.loss_function = None
-        self.batch_size = None
-        self.activation_function = None
-        self.scaler = None
-
-    def fit(self,
-            df_x_train,
-            df_x_val,
-            epochs=200,
-            early_stopping=True,
-            loss_function="mse",
-            batch_size=128,
-            activation_function="tanh",
-            plot_learning_curve=False,
-            plot_latent_space=False):
-        """
-        Trains an ordinary autoencoder for anomaly detection
-        """
-
-        self.scaler = MinMaxScaler()
-        x_train_scaled = self.scaler.fit_transform(df_x_train)
-        x_val_scaled = self.scaler.transform(df_x_val)
-
-        callbacks_to_keras_model = []
-        if early_stopping:
-            callbacks_to_keras_model.append(EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True))
-
-        feature_space_dimension = x_train_scaled.shape[1]
-
-        x_input = Input(shape=(feature_space_dimension,))
-        hidden_layer = Dense(self.first_hidden_layer_dimension, activation=activation_function)(x_input)
-        hidden_layer = Dense(self.first_hidden_layer_dimension - 2, activation=activation_function)(hidden_layer)
-        hidden_layer = Dense(self.first_hidden_layer_dimension - 4, activation=activation_function)(hidden_layer)
-        latent_layer = Dense(self.latent_space_dimension, activation=activation_function)(hidden_layer)
-        hidden_layer = Dense(self.first_hidden_layer_dimension - 4, activation=activation_function)(latent_layer)
-        hidden_layer = Dense(self.first_hidden_layer_dimension - 2, activation=activation_function)(hidden_layer)
-        hidden_layer = Dense(self.first_hidden_layer_dimension, activation=activation_function)(hidden_layer)
-        x_input_reconstructed = Dense(feature_space_dimension, activation=activation_function)(hidden_layer)
-
-        encoder_model = Model(inputs=x_input, outputs=latent_layer)
-
-        autoencoder_model = Model(inputs=x_input, outputs=x_input_reconstructed, name='ae')
-        autoencoder_model.compile(optimizer='adam', loss=loss_function)
-
-        hist = autoencoder_model.fit(
-            x_train_scaled,
-            x_train_scaled,
-            shuffle=False,
-            epochs=epochs,
-            batch_size=batch_size,
-            validation_data=(x_val_scaled, x_val_scaled),
-            verbose=2,
-            callbacks=callbacks_to_keras_model
-        )
-
-        train_set_predictions = autoencoder_model.predict(x_train_scaled)
-        val_set_predictions = autoencoder_model.predict(x_val_scaled)
-        mse_train_set_actual_vs_predicted = np.mean(np.power(x_train_scaled - train_set_predictions, 2), axis=1)
-        mse_val_set_actual_vs_predicted = np.mean(np.power(x_val_scaled - val_set_predictions, 2), axis=1)
-
-        if plot_latent_space:
-            z_train = encoder_model.predict(x_train_scaled)
-            title_latent = "Autoencoder latent space (training data)"
-            if self.latent_space_dimension > 2:
-                reduction_method = "pca"
-                if reduction_method.lower() == "pca":
-                    pca = PCA(n_components=2).fit(z_train)
-                    z_train = pca.transform(z_train)
-                    var_expl = 100 * pca.explained_variance_ratio_.sum()
-                    title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
-                else:
-                    z_train = TSNE(n_components=2, learning_rate=75).fit_transform(z_train)
-                    title_latent = title_latent + "\nVisualized using t-SNE"
-            plt.scatter(z_train[:, 0], z_train[:, 1], s=10)
-            plt.xlabel("z_0")
-            plt.ylabel("z_1")
-            plt.title(title_latent)
-            plt.show()
-
-        if plot_learning_curve:
-            fig, ax = plt.subplots()
-            hist_df = pd.DataFrame(hist.history)
-            hist_df.plot(ax=ax)
-            plt.suptitle("Autoencoder learning curve")
-            ax.set_ylabel('Loss')
-            ax.set_xlabel('# epochs')
-            plt.show()
-
-        self.keras_model = autoencoder_model
-        self.mse_train_set_actual_vs_predicted = mse_train_set_actual_vs_predicted
-        self.mse_val_set_actual_vs_predicted = mse_val_set_actual_vs_predicted
-        self.epochs = epochs
-        self.early_stopping = early_stopping
-        self.loss_function = loss_function
-        self.batch_size = batch_size
-        self.activation_function = activation_function
-        return self
-
-    def predict_new_and_return_mse(self, x_unscaled_to_predict):
-        x_scaled_to_predict = self.scaler.transform(x_unscaled_to_predict)
-        x_scaled_predicted = self.keras_model.predict(x_scaled_to_predict)
-        mse_actual_vs_predicted = np.mean(np.power(np.array(x_scaled_to_predict) - x_scaled_predicted, 2), axis=1)
-        df_mse_actual_vs_predicted = pd.DataFrame({"mse_actual_vs_observed": mse_actual_vs_predicted})
-        return df_mse_actual_vs_predicted
-
-    @staticmethod
-    def compute_binary_anomalies_from_mse_and_threshold(mse_actual_vs_observed, anomaly_threshold):
-        boolean_anomaly_labels = [data_point_mse > anomaly_threshold for data_point_mse in mse_actual_vs_observed]
-        binary_anomaly_labels = np.array(boolean_anomaly_labels).astype(int)
-        return binary_anomaly_labels
-
-    @staticmethod
-    def plot_predictions(df_anomaly_predictions):
-        df_anomaly_predictions.plot(subplots=True, layout=(df_anomaly_predictions.shape[1], 1))
-        plt.suptitle("Anomaly detector predictions")
-        plt.show()
-
-    def save(self, filename="AnomalyDetectorAE.pickle"):
-        with open(filename, "wb") as file:
-            pickle.dump(self, file)
-
-    def load(self, filename="AnomalyDetectorAE.pickle"):
-        with open(filename, "rb") as file:
-            self.__dict__.update(pickle.load(file).__dict__)
+from src.models.AnoGen.variational_autoencoder import fit_VAE
 
 
 class AnomalyGenerator:
@@ -184,7 +35,7 @@ class AnomalyGenerator:
         self.latent_cols = None
 
     def fit(self,
-            df,
+            df_unscaled,
             vae_validation_size: float = 0.1,
             latent_stddev: float = 0.005,
             dbscan_epsilon: float = 0.3,  # 0.3 for 2 dim vae
@@ -194,10 +45,10 @@ class AnomalyGenerator:
             kl_warmup: int = 30,
             plot_history: bool = False):
 
-        self._df_train = df.copy()
+        self._df_unscaled_train = df_unscaled.copy()
 
         # split in train and validation set
-        x_train_unscaled, x_val_unscaled = train_test_split(self._df_train,
+        x_train_unscaled, x_val_unscaled = train_test_split(self._df_unscaled_train,
                                                             test_size=vae_validation_size,
                                                             shuffle=False)
 
@@ -222,11 +73,12 @@ class AnomalyGenerator:
         self.latent_cols = [f"z{dim}" for dim in range(self.vae_latent_dim)]
         self._df_vae_latent_space = pd.DataFrame(
             encoder.predict(
-                self._scaler.fit_transform(self._df_train)),  # refit scaler to whole training set including validation
+                self._scaler.fit_transform(self._df_unscaled_train)),  # refit scaler to whole training set including validation
             columns=self.latent_cols
         )
 
-        # fit clustering keras_model to recognize the learned latent space and filter away samples that are
+        # fit clustering model to recognize the learned latent space and
+        # filter away samples that are
         # overlapping with this learned normal condition
         self.clustering = DBSCANClustering(cols_to_include=self._df_vae_latent_space.columns.values,
                                            epsilon=dbscan_epsilon,
@@ -234,7 +86,7 @@ class AnomalyGenerator:
                                            plot=False
                                            ).fit(self._df_vae_latent_space)
         self.decoder = decoder
-        self.feature_cols = df.columns.values
+        self.feature_cols = df_unscaled.columns.values
         self.latent_stddev = latent_stddev
         self.activation = activation
         self.encoder = encoder
@@ -310,8 +162,8 @@ class AnomalyGenerator:
         """
 
         df_filtered = df_latent_and_reconstructions.copy()
-        nominal_max = self._df_train.max()
-        nominal_min = self._df_train.min()
+        nominal_max = self._df_unscaled_train.max()
+        nominal_min = self._df_unscaled_train.min()
         if domain_filter is not None:
             # find common cols in both domain_filter and _x_train and retain ordering
             common_cols = [col for col in list(domain_filter.keys()) if col in self.feature_cols]
@@ -331,10 +183,10 @@ class AnomalyGenerator:
 
     def plot_vae_latent(self, color_by_columns=None, save=False, show=True, ax=None):
         if color_by_columns is None:
-            color_by_columns = [self._df_train.columns[0]]
+            color_by_columns = [self._df_unscaled_train.columns[0]]
         elif not isinstance(color_by_columns, list):
             if color_by_columns.lower() == "all":
-                color_by_columns = self._df_train.columns.values
+                color_by_columns = self._df_unscaled_train.columns.values
             else:
                 color_by_columns = [color_by_columns]  # if only a single string is received like "kv_flow"
         df = self._df_vae_latent_space.copy()
@@ -350,7 +202,7 @@ class AnomalyGenerator:
 
         for coloring_col in color_by_columns:
             plt.scatter(df.iloc[:, 0], df.iloc[:, 1],
-                        c=self._df_train[coloring_col], cmap='jet', s=10)
+                        c=self._df_unscaled_train[coloring_col], cmap='jet', s=10)
             plt.xlabel("PC1" if pca_reduce else "z0")
             plt.ylabel("PC2" if pca_reduce else "z1")
             clb = plt.colorbar()
@@ -369,581 +221,16 @@ class AnomalyGenerator:
         pass
 
 
-class AnomalyEvaluator:
-    def __init__(self):
-        self.df_samples_latent_and_x_and_preds = None
-        self.df_sample_latent_space = None
-        self.df_samples_reconstructions = None
-        self.df_vae_latent_space = None
-        self.df_vae_train_data = None
-        self.vae_latent_pca = None
-        self.vae_latent_dim = None
-        self.metrics = None
-
-    def _append_anomalies(self, df_nominal, df_anomalies):
-        """
-        Takes a normal df and an anomaly df and makes an extra column in each, indicating
-        if each datapoint is anomalous or nominal. After this, it concatenates them vertically
-        and makes sure the timeindex is correct by simply continuing the nominal df's index into
-        the anomalous one by incrementing it appropriately
-
-        :param df_nominal: the dataframe with nominal/normal data to have anomalies appended to it
-        :type df_nominal: DataFrame
-        :param df_anomalies: the dataframe with anomalies to append to df
-        :type df_anomalies: DataFrame
-        :return: a dataframe containing the nominal data with anomalous data concatted vertically as the last rows
-        :rtype: DataFrame
-        """
-
-        assert list(df_nominal.columns) == list(df_anomalies.columns)
-
-        df_copy = df_nominal.copy()
-        df_anomalies_copy = df_anomalies.copy()
-
-        df_copy = df_copy.assign(synthetic_anomaly=0)
-        df_anomalies_copy = df_anomalies_copy.assign(synthetic_anomaly=1)
-        N_anomaly = df_anomalies_copy.shape[0]
-
-        if not type(df_nominal.index) == type(df_anomalies.index):
-            time_index = pd.to_datetime(df_copy.index)
-            time_increment = time_index[-1] - time_index[-2]
-            anomaly_index = [time_index[-1] + time_increment]
-            for i in range(N_anomaly - 1):
-                anomaly_index.append(anomaly_index[i] + time_increment)
-
-        df_anomalies_copy.index = anomaly_index
-        df_concatted = pd.concat([df_copy, df_anomalies_copy])
-        df_concatted.index = pd.to_datetime(df_concatted.index)
-        return df_concatted
-
-    def _compute_performance_metrics(self, anomaly_truths, anomaly_predicted):
-        """
-        Computes metrics to evaluate the ability and skill of an anomaly detection algorithm
-        given known anomalies and nominal observations.
-
-        For the confusion matrix, the following values can be obtained:
-                           ACTUAL
-                         |    1   |   0
-                ----------------------------
-        PREDICTED     1  |    TP    |  FP
-                ----------------------------
-                      0  |    FN    |  TN
-
-        FPR                        = FP / (FP + TN)
-        sensitivity (TPR)          = TP / (TP + FN)
-        precision (PPV)            = TP / (TP + FP)
-        False discovery rate (FDR) = FP / (FP + TP)
-
-
-        """
-        # cnf_matrix = confusion_matrix(y_true, y_predicted)
-        TN, FP, FN, TP = confusion_matrix(anomaly_truths, anomaly_predicted).ravel()
-        N_total = anomaly_truths.shape[0]
-        N_positives = anomaly_truths.sum()
-        N_negatives = N_total - N_positives
-
-        # Sensitivity, hit rate, recall, or true positive rate
-        TPR = TP / N_positives
-        # Specificity or true negative rate
-        TNR = TN / N_negatives
-        # Precision or positive predictive value
-        PPV = TP / (TP + FP)
-        # Negative predictive value
-        NPV = TN / (TN + FN)
-        # Fall out or false positive rate
-        FPR = FP / N_negatives
-        # False negative rate
-        FNR = FN / N_positives
-        # False discovery rate
-        FDR = FP / (FP + TP)
-        # accuracy
-        ACC = (TP + TN) / (N_positives + N_negatives)
-        # balanced accuracy
-        balanced_ACC = (TPR + TNR) / 2
-        # balanced false rate (BFR)
-        BFR = (FPR + FNR) / 2  # could consider making a weighted average here with higher weight on e.g. FPR
-        # F1 score
-        F1 = 2 * TP / (2 * TP + FP + FN)
-        # Area under curve
-        AUC = roc_auc_score(anomaly_truths, anomaly_predicted)
-        # "mean Average Precision (mAP)"
-        AP = average_precision_score(anomaly_truths, anomaly_predicted)
-        self.metrics = {"TPR": TPR, "TNR": TNR, "precision:": PPV, "NPV": NPV, "FPR": FPR, "FNR": FNR,
-                        "FDR": FDR, "accuracy": ACC, "balanced_ACC": balanced_ACC, "BFR": BFR,
-                        "F1": F1, "AUC": AUC, "AP": AP}
-
-    # def collect_visualization_dataframe(self,
-    #                                     df_anomalies_latent,
-    #                                     df_anomalies_decoded,
-    #                                     df_samples_anomaly_predictions,
-    #                                     df_vae_latent_space,
-    #                                     df_vae_train_data,
-    #                                     df_test_data,
-    #                                     df_test_anom_preds,
-    #                                     anomaly_threshold,
-    #                                     quantile):
-    #     assert df_anomalies_latent.shape[0] == df_anomalies_decoded.shape[0]
-    #     assert df_anomalies_decoded.shape[0] == df_samples_anomaly_predictions.shape[0]
-    #
-    #     # collect all information about the sampled anomalies in one df
-    #     df_samples_latent_and_x_and_preds = pd.concat([df_anomalies_latent,
-    #                                                    df_anomalies_decoded,
-    #                                                    df_samples_anomaly_predictions],
-    #                                                   axis=1)
-    #     df_test_x_and_preds = pd.concat([df_test_data, df_test_anom_preds], axis=1)
-    #     df_samples_x_and_preds = pd.concat([df_anomalies_decoded, df_samples_anomaly_predictions], axis=1)
-    #     df_test_and_samples_and_preds = self._append_anomalies(df_test_x_and_preds, df_samples_x_and_preds)
-    #
-    #     self.df_samples_latent_and_x_and_preds = df_samples_latent_and_x_and_preds
-    #     self.df_sample_latent_space = df_anomalies_latent
-    #     self.df_anomalies_decoded = df_anomalies_decoded
-    #     self.df_vae_latent_space = df_vae_latent_space
-    #     self.df_vae_train_data = df_vae_train_data
-    #     self.df_test_data = df_test_data
-    #     self.df_test_anom_preds = df_test_anom_preds
-    #     self.vae_latent_dim = df_vae_latent_space.shape[1]
-    #     self.df_test_and_samples_and_preds = df_test_and_samples_and_preds
-    #     self.anomaly_threshold = anomaly_threshold
-    #     self.quantile = quantile
-    #     # TODO should do PCA of latent space here if dim > 2
-
-    def plot_vae_latent(self, color_by_columns=None, save=False, show=True, ax=None):
-        if color_by_columns is None:
-            color_by_columns = [self.df_vae_train_data.columns[0]]
-        elif type(color_by_columns) != list:
-            if color_by_columns.lower() == "all":
-                color_by_columns = self.df_vae_train_data.columns.values
-            else:
-                color_by_columns = [color_by_columns]  # if only a single string is received like "kv_flow"
-        df = self.df_vae_latent_space.copy()
-        pca_reduce = False
-        title_latent = "AnoGen VAE training latent space"
-        if self.vae_latent_dim > 2:
-            pca = PCA(n_components=2).fit(df)
-            df = pd.DataFrame(pca.fit_transform(df))
-            var_expl = 100 * pca.explained_variance_ratio_.sum()
-            title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
-            pca_reduce = True
-            self.vae_latent_pca = pca
-
-        for coloring_col in color_by_columns:
-            plt.scatter(df.iloc[:, 0], df.iloc[:, 1],
-                        c=self.df_vae_train_data[coloring_col], cmap='jet', s=10)
-            plt.xlabel("PC1" if pca_reduce else "z0")
-            plt.ylabel("PC2" if pca_reduce else "z1")
-            clb = plt.colorbar()
-            clb.set_label(coloring_col, rotation=0, labelpad=-30, y=1.05)
-            plt.title(title_latent)
-            if save:
-                plt.savefig('VAE_latent_[{}].png'.format(coloring_col))
-            if show:
-                plt.show()
-
-    def plot_vae_latent_with_samples(self, color_by_columns=None, save=False, show=True):
-        if color_by_columns is None:
-            color_by_columns = [self.df_vae_train_data.columns[0]]
-        elif type(color_by_columns) != list:
-            if color_by_columns.lower() == "all":
-                color_by_columns = self.df_vae_train_data.columns.values
-            else:
-                color_by_columns = [color_by_columns]  # if only a single string is received like "kv_flow"
-        df = self.df_vae_latent_space.copy()
-        df_samples = self.df_sample_latent_space.copy()
-        pca_reduce = False
-        title_latent = "AnoGen VAE training latent space"
-        if self.vae_latent_dim > 2:
-            pca = PCA(n_components=2).fit(df)
-            df = pd.DataFrame(pca.fit_transform(df))
-            df_samples = pd.DataFrame(pca.transform(df_samples))
-            var_expl = 100 * pca.explained_variance_ratio_.sum()
-            title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
-            pca_reduce = True
-            self.vae_latent_pca = pca
-        for coloring_col in color_by_columns:
-            plt.scatter(df.iloc[:, 0], df.iloc[:, 1],
-                        c=self.df_vae_train_data[coloring_col], cmap='jet', s=10)
-            plt.scatter(df_samples.iloc[:, 0], df_samples.iloc[:, 1],
-                        s=13, c=self.df_samples_reconstructions[coloring_col],
-                        marker="^", label="Sampled anomaly point")
-            plt.xlabel("PC1" if pca_reduce else "z0")
-            plt.ylabel("PC2" if pca_reduce else "z1")
-            clb = plt.colorbar()
-            clb.set_label(coloring_col, rotation=0, labelpad=-30, y=1.05)
-            plt.title(title_latent)
-            if save:
-                plt.savefig('VAE_latent_[{}].png'.format(coloring_col))
-            if show:
-                plt.show()
-
-    def plot_vae_latent_samples_by_anomaly_prediction(self):
-        self.plot_vae_latent(show=False)
-        df = self.df_samples_latent_and_x_and_preds.copy()
-        latent_cols = list(df.columns[:self.vae_latent_dim])
-        df_samples_detected = df.loc[df["AE_anomaly"] == 1, latent_cols]
-        df_samples_not_detected = df.loc[df["AE_anomaly"] == 0, latent_cols]
-
-        if self.vae_latent_dim > 2:
-            df_samples_detected = pd.DataFrame(self.vae_latent_pca.transform(df_samples_detected))
-            df_samples_not_detected = pd.DataFrame(self.vae_latent_pca.transform(df_samples_not_detected))
-
-        plt.scatter(df_samples_detected.iloc[:, 0], df_samples_detected.iloc[:, 1],
-                    s=12, c="blue", marker="^", label="Anomaly sample detected")
-        plt.scatter(df_samples_not_detected.iloc[:, 0], df_samples_not_detected.iloc[:, 1],
-                    s=14, c="red", marker="s", label="Anomaly sample not detected")
-        plt.legend()
-        plt.show()
-
-    def plot_anomaly_time_series(self, N_nominal_to_show=200, show=True):
-        df = self.df_test_and_samples_and_preds
-        N_samples = self.df_samples_reconstructions.shape[0]
-        idx_to_plot_after = -N_samples - N_nominal_to_show
-        cols_to_plot = ["AE_mse", "AE_anomaly", "synthetic_anomaly"]
-        axes = df[cols_to_plot].iloc[idx_to_plot_after:, :].plot(subplots=True, layout=(len(cols_to_plot), 1))
-        plt.suptitle("Anomaly detector predictions\nSampled anomalies after black line yo")
-        for i, c in enumerate(axes):
-            for ax in c:
-                if i == 0:
-                    ax.axhline(y=self.anomaly_threshold, color="red", linestyle="--", label="Anomaly threshold")
-                ax.axvline(x=df.index[-N_samples], color='black', linestyle='--')
-                ax.legend(loc="upper left")
-        if show:
-            plt.show()
-        return axes
-
-    def print_metrics(self, combine_with_test_set=False):
-        if combine_with_test_set:
-            anomaly_preds = self.df_test_and_samples_and_preds["AE_anomaly"]
-            anomaly_truths = self.df_test_and_samples_and_preds["synthetic_anomaly"]
-        else:
-            anomaly_preds = list(self.df_samples_latent_and_x_and_preds["AE_anomaly"])
-            anomaly_truths = [1 for i in range(len(anomaly_preds))]
-
-        self._compute_performance_metrics(anomaly_truths, anomaly_preds)
-        print("\n\n==== Anomaly Detection performance summary ====")
-        print("Anomaly detection MSE threshold: {0:1.4f}, train-set quantile: {1}\n".format(self.anomaly_threshold,
-                                                                                            self.quantile))
-        print("False positive rate: {0:1.2f}".format(self.metrics["FPR"]))
-        print("False negative rate: {0:1.2f}".format(self.metrics["FNR"]))
-        print("Balanced false rate: {0:1.2f}".format(self.metrics["BFR"]))
-        print("AUC score: {0:1.2f}".format(self.metrics["AUC"]))
-        print("Average precision: {0:1.2f}".format(self.metrics["AP"]))
-        print("F1: {0:1.2f}".format(self.metrics["F1"]))
-        print("\nConfusion matrix:\n", confusion_matrix(anomaly_truths, anomaly_preds))
-        print("====================================================")
-
-    def plot_all(self):
-        """
-        Plot all the plots as subplots to show at the same time for better overview. Easier said that done...
-        :return:
-        """
-        pass
-
-
-class Visualizer:
-    def plot_vae_latent(self, color_by_columns=None, save=False, show=True, ax=None):
-        if color_by_columns is None:
-            color_by_columns = [self.df_vae_train_data.columns[0]]
-        elif type(color_by_columns) != list:
-            if color_by_columns.lower() == "all":
-                color_by_columns = self.df_vae_train_data.columns.values
-            else:
-                color_by_columns = [color_by_columns]  # if only a single string is received like "kv_flow"
-        df = self.df_vae_latent_space.copy()
-        pca_reduce = False
-        title_latent = "AnoGen VAE training latent space"
-        if self.vae_latent_dim > 2:
-            pca = PCA(n_components=2).fit(df)
-            df = pd.DataFrame(pca.fit_transform(df))
-            var_expl = 100 * pca.explained_variance_ratio_.sum()
-            title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
-            pca_reduce = True
-            self.vae_latent_pca = pca
-
-        for coloring_col in color_by_columns:
-            plt.scatter(df.iloc[:, 0], df.iloc[:, 1],
-                        c=self.df_vae_train_data[coloring_col], cmap='jet', s=10)
-            plt.xlabel("PC1" if pca_reduce else "z0")
-            plt.ylabel("PC2" if pca_reduce else "z1")
-            clb = plt.colorbar()
-            clb.set_label(coloring_col, rotation=0, labelpad=-30, y=1.05)
-            plt.title(title_latent)
-            if save:
-                plt.savefig('VAE_latent_[{}].png'.format(coloring_col))
-            if show:
-                plt.show()
-
-
-class DetectorEvaluator:
-
-    def __init__(self):
-        self.metrics = None
-
-    def _compute_performance_metrics(self, anomaly_truths, anomaly_predictions, threshold):
-        """
-        Computes metrics to evaluate the ability and skill of an anomaly detection algorithm
-        given known anomalies and nominal observations.
-
-        For the confusion matrix, the following values can be obtained:
-                           ACTUAL
-                         |    1   |   0
-                ----------------------------
-        PREDICTED     1  |    TP    |  FP
-                ----------------------------
-                      0  |    FN    |  TN
-
-        FPR                        = FP / (FP + TN)
-        sensitivity (TPR)          = TP / (TP + FN)
-        precision (PPV)            = TP / (TP + FP)
-        False discovery rate (FDR) = FP / (FP + TP)
-
-
-        """
-        # cnf_matrix = confusion_matrix(y_true, y_predicted)
-        TN, FP, FN, TP = confusion_matrix(anomaly_truths, anomaly_predictions).ravel()
-        N_total = anomaly_truths.shape[0]
-        N_positives = anomaly_truths.sum()
-        N_negatives = N_total - N_positives
-
-        # Sensitivity, hit rate, recall, or true positive rate
-        TPR = TP / N_positives
-        # Specificity or true negative rate
-        TNR = TN / N_negatives
-        # Precision or positive predictive value
-        PPV = TP / (TP + FP)
-        # Negative predictive value
-        NPV = TN / (TN + FN)  # TODO debug: "RuntimeWarning: invalid value encountered in longlong_scalars"
-        # Fall out or false positive rate
-        FPR = FP / N_negatives
-        # False negative rate
-        FNR = FN / N_positives
-        # False discovery rate
-        FDR = FP / (FP + TP)
-        # accuracy
-        ACC = (TP + TN) / (N_positives + N_negatives)
-        # balanced accuracy
-        balanced_ACC = (TPR + TNR) / 2
-        # balanced false rate (BFR)
-        BFR = (FPR + FNR) / 2  # could consider making a weighted average here with higher weight on e.g. FPR
-        # F1 score
-        F1 = 2 * TP / (2 * TP + FP + FN)
-        # Area under curve
-        AUC = roc_auc_score(anomaly_truths, anomaly_predictions)
-        # "mean Average Precision (mAP)"
-        AP = average_precision_score(anomaly_truths, anomaly_predictions)
-        metrics_dict = {"TP": TP, "TN": TN, "FP": FP, "FN": FN, "TPR": TPR, "TNR": TNR,
-                        "precision:": PPV, "NPV": NPV,
-                        "FPR": FPR, "FNR": FNR, "FDR": FDR, "accuracy": ACC,
-                        "balanced_ACC": balanced_ACC,
-                        "BFR": BFR, "F1": F1, "AUC": AUC, "AP": AP}
-        df_metrics = pd.DataFrame(metrics_dict, index=[threshold])
-        if self.metrics is None:
-            self.metrics = df_metrics
-            self.metrics.index.name = "threshold"
-        else:
-            self.metrics = self.metrics.append(df_metrics)
-
-    def print_metrics(self):
-        anomaly_preds = list(self.df_samples_latent_and_x_and_preds["AE_anomaly"])
-        anomaly_truths = [1 for i in range(len(anomaly_preds))]
-
-        self._compute_performance_metrics(anomaly_truths, anomaly_preds)
-        print("\n\n==== Anomaly Detection performance summary ====")
-        print("Anomaly detection MSE threshold: {0:1.4f}, train-set quantile: {1}\n".format(self.anomaly_threshold,
-                                                                                            self.quantile))
-        print("False positive rate: {0:1.2f}".format(self.metrics["FPR"]))
-        print("False negative rate: {0:1.2f}".format(self.metrics["FNR"]))
-        print("Balanced false rate: {0:1.2f}".format(self.metrics["BFR"]))
-        print("AUC score: {0:1.2f}".format(self.metrics["AUC"]))
-        print("Average precision: {0:1.2f}".format(self.metrics["AP"]))
-        print("F1: {0:1.2f}".format(self.metrics["F1"]))
-        print("\nConfusion matrix:\n", confusion_matrix(anomaly_truths, anomaly_preds))
-        print("====================================================")
-
-    def _append_anomalies(self, df_nominal, df_anomalies):
-        """
-        Takes a normal df and an anomaly df and makes an extra column in each, indicating
-        if each datapoint is anomalous or nominal. After this, it concatenates them vertically
-        and makes sure the timeindex is correct by simply continuing the nominal df's index into
-        the anomalous one by incrementing it appropriately
-
-        :param df_nominal: the dataframe with nominal/normal data to have anomalies appended to it
-        :type df_nominal: DataFrame
-        :param df_anomalies: the dataframe with anomalies to append to df
-        :type df_anomalies: DataFrame
-        :return: a dataframe containing the nominal data with anomalous data concatted vertically as the last rows
-        :rtype: DataFrame
-        """
-
-        assert list(df_nominal.columns) == list(df_anomalies.columns)
-
-        df_copy = df_nominal.copy()
-        df_anomalies_copy = df_anomalies.copy()
-
-        df_copy = df_copy.assign(synthetic_anomaly=0)
-        df_anomalies_copy = df_anomalies_copy.assign(synthetic_anomaly=1)
-        N_anomaly = df_anomalies_copy.shape[0]
-
-        if not type(df_nominal.index) == type(df_anomalies.index):
-            time_index = pd.to_datetime(df_copy.index)
-            time_increment = time_index[-1] - time_index[-2]
-            anomaly_index = [time_index[-1] + time_increment]
-            for i in range(N_anomaly - 1):
-                anomaly_index.append(anomaly_index[i] + time_increment)
-
-        df_anomalies_copy.index = anomaly_index
-        df_concatted = pd.concat([df_copy, df_anomalies_copy])
-        df_concatted.index = pd.to_datetime(df_concatted.index)
-        return df_concatted
-
-    def evaluate(self,
-                 df_test_nominal=None,
-                 df_test_anomalous=None,
-                 anomaly_detector=None,
-                 anomaly_mse_quantiles=None,
-                 anomaly_thresholds=None):
-
-        df_test = self._append_anomalies(df_test_nominal, df_test_anomalous)
-        df_anomaly_truths = df_test["synthetic_anomaly"]
-        if anomaly_mse_quantiles is not None:
-            anomaly_thresholds = [np.quantile(anomaly_detector.mse_val_set_actual_vs_predicted, q) for q in anomaly_mse_quantiles]
-
-        for threshold in anomaly_thresholds:
-            df_anomaly_preds = anomaly_detector.predict(
-                df_test.drop("synthetic_anomaly", axis=1),
-                anomaly_threshold=threshold
-            )
-            self._compute_performance_metrics(anomaly_truths=df_anomaly_truths,
-                                              anomaly_predictions=df_anomaly_preds["AE_anomaly"],
-                                              threshold=threshold)
-        print(self.metrics)
-        df_ROC = self.metrics[["FPR", "TPR"]]
-        plt.plot(df_ROC["FPR"], df_ROC["TPR"])
-        plt.show()
-
-    def plot_latent_samples_by_detection(self,
-                                         df_vae_latent_space,
-                                         df_anomalies_latent,
-                                         df_anomalies_predictions,
-                                         show=True):
-
-        latent_dim = df_anomalies_latent.shape[1]
-        df_anomalies_merged = pd.concat([df_anomalies_latent, df_anomalies_predictions], axis=1)
-        df_samples_detected = df_anomalies_merged.loc[df_anomalies_merged["AE_anomaly"] == 1].drop("AE_anomaly", axis=1)
-        df_samples_not_detected = df_anomalies_merged.loc[df_anomalies_merged["AE_anomaly"] == 0].drop("AE_anomaly", axis=1)
-
-        df_vae_latent_space_copy = df_vae_latent_space.copy()
-        if latent_dim > 2:
-            pca = PCA(2)
-            df_vae_latent_space_copy = pca.fit_transform(df_vae_latent_space)
-            df_samples_detected = pca.transform(df_samples_detected)
-            df_samples_not_detected = pca.transform(df_samples_not_detected)
-
-        plt.scatter(df_vae_latent_space_copy.iloc[:, 0], df_vae_latent_space_copy.iloc[:, 1],
-                    c="black", s=10, alpha=0.6, label="Nominal")
-        plt.scatter(df_samples_detected.iloc[:, 0], df_samples_detected.iloc[:, 1],
-                    s=12, c="blue", marker="^", label="Anomaly sample detected")
-        plt.scatter(df_samples_not_detected.iloc[:, 0], df_samples_not_detected.iloc[:, 1],
-                    s=14, c="red", marker="s", label="Anomaly sample not detected")
-        # plot latent space with samples colored by anomaly detection status
-        plt.title("Learned normal condition\n vs sampled anomalies")
-        plt.legend()
-        plt.show()
-
-@dataclass
-class DataProvider:
-
-    _scaler = None
-    x_train = None
-    x_val = None
-    x_test = None
-
-    def get_local_pump_data(self, filename="train-data-large.csv", dropna=True):
-        df = pd.read_csv(filename, index_col="timelocal")
-        if dropna:
-            df = df.dropna()
-        return df
-
-    def train_val_test_split(self, df, train_size=0.7, val_size=0.2, test_size=0.1, shuffle=False):
-        x_train, x_test = train_test_split(df, test_size=val_size + test_size, shuffle=shuffle)
-        x_test, x_val = train_test_split(x_test, test_size=val_size / (val_size + test_size), shuffle=shuffle)
-        self.x_train = x_train
-        self.x_val = x_val
-        self.x_test = x_test
-        return x_train, x_val, x_test
-
-    def scale(self, df=None, scaler=MinMaxScaler()):
-        if self._scaler is None:
-            self._scaler = scaler
-        if df is None:
-            x_train_scaled = pd.DataFrame(self._scaler.fit_transform(self.x_train), columns=self.x_train.columns)
-            x_val_scaled = pd.DataFrame(self._scaler.transform(self.x_val), columns=self.x_train.columns)
-            x_test_scaled = pd.DataFrame(self._scaler.transform(self.x_test), columns=self.x_train.columns)
-            return x_train_scaled, x_val_scaled, x_test_scaled
-        else:
-            df_scaled = pd.DataFrame(self._scaler.fit_transform(df), columns=df.columns)
-            return df_scaled
-
-    def get_scaler(self):
-        return self._scaler
-
-
 if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
 
     # import data
-    df = pd.read_csv("train-data-large.csv", index_col="timelocal")
+    df = pd.read_csv("..\\..\\data\\SSV_CWP\\train-data-small.csv", index_col="timelocal")
     df = df.dropna()
 
     N_anomalies = 100
     generator = AnomalyGenerator(12, 2)
-    generator.fit(df, epochs=200)
+    generator.fit(df, epochs=10)
     df_samples_reconstructions, df_samples_latent_space = generator.generate_anomalies(N_anomalies)
     print(df_samples_reconstructions)
     print(df_samples_reconstructions.describe())
-
-    # split data
-    x_train, x_test = train_test_split(df, test_size=0.2, shuffle=False)
-    x_val, x_test = train_test_split(x_test, test_size=0.5, shuffle=False)
-
-    # scale data
-    scaler_train = MinMaxScaler()
-    x_train_scaled = scaler_train.fit_transform(x_train)
-    x_val_scaled = scaler_train.transform(x_val)
-    x_test_scaled = scaler_train.transform(x_test)
-
-    detector = AnomalyDetectorAutoencoder(latent_space_dimension=2, first_hidden_layer_dimension=12)
-
-    load_model = True
-    # load_model = False
-    if load_model:
-        detector.load()
-    else:
-        detector.fit(x_train_scaled,
-                     x_val_scaled,
-                     plot_learning_curve=True)
-        detector.save()
-
-    threshold = np.quantile(detector.mse_train_set_actual_vs_predicted, 0.99)
-
-    # predict test set and synthesized anomalies
-    df_test_anom_preds, x_test_preds = detector.predict(x_test_scaled, threshold)
-    df_test_anom_preds.index = x_test.index
-    df_samples_anom_preds, x_synth_preds = detector.predict(scaler_train.transform(df_samples_reconstructions),
-                                                            threshold)
-
-    # start visualizing the predictions
-    visualizer = AnomalyEvaluator()
-    # visualizer.collect_visualization_dataframe(df_anomalies_latent,
-    #                                            df_anomalies_decoded,
-    #                                            df_samples_anom_preds,
-    #                                            generator._df_vae_latent_space,
-    #                                            x_train,
-    #                                            x_test,
-    #                                            df_test_anom_preds,
-    #                                            threshold)
-
-    visualizer.plot_vae_latent(color_by_columns=["kv_flow", "flush_indicator", "motor_effect"])
-    visualizer.plot_vae_latent_with_samples()
-    visualizer.plot_vae_latent_samples_by_anomaly_prediction()
-    visualizer.plot_anomaly_time_series()
-    print("\nEnd of generator script...")
