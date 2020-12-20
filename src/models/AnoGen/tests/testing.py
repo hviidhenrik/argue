@@ -27,8 +27,8 @@ if __name__ == "__main__":
 
     N_anomalies = x_test.shape[0]
     generator = AnomalyGenerator(
-        vae_intermediate_dim=12,
-        vae_latent_dim=2)
+        first_hidden_layer_size=12,
+        latent_space_size=2)
     generator.fit(df,
                   epochs=200,
                   latent_stddev=0.005,
@@ -36,9 +36,9 @@ if __name__ == "__main__":
                   )  # TODO decide if VAE training should be on both train and test or only train set
     df_anomalies_decoded, df_anomalies_latent = generator.generate_anomalies(
         N_anomalies,
-        z_min=-1,
-        z_max=1,
-        domain_filter={"kv_flow": [0, None],
+        latent_sample_space_minimum=-1,
+        latent_sample_space_maximum=1,
+        domain_filter_dict={"kv_flow": [0, None],
                        "pump_rotation": [0, None]}
     )
 

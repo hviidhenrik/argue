@@ -501,7 +501,7 @@ class AnomalyEvaluator:
     #     self.df_vae_train_data = df_vae_train_data
     #     self.df_test_data = df_test_data
     #     self.df_test_anom_preds = df_test_anom_preds
-    #     self.vae_latent_dim = df_vae_latent_space.shape[1]
+    #     self.latent_space_size = df_vae_latent_space.shape[1]
     #     self.df_test_and_samples_and_preds = df_test_and_samples_and_preds
     #     self.anomaly_threshold = anomaly_threshold
     #     self.quantile = quantile
