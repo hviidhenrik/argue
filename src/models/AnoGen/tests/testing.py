@@ -27,8 +27,8 @@ if __name__ == "__main__":
 
     N_anomalies = x_test.shape[0]
     generator = AnomalyGenerator(
-        first_hidden_layer_size=12,
-        latent_space_size=2)
+        neuralnet_first_hidden_layer_size=12,
+        neuralnet_latent_space_size=2)
     generator.fit(df,
                   epochs=200,
                   latent_stddev=0.005,
@@ -43,8 +43,8 @@ if __name__ == "__main__":
     )
 
     # plot learned latent space
-    df_vae_latent_space = generator.get_vae_latent_space()
-    generator.plot_vae_latent(color_by_columns=["kv_flow"], show=False)
+    df_vae_latent_space = generator.get_nominal_latent_space()
+    generator.plot_latent_space(color_by_columns=["kv_flow"], show=False)
     plt.scatter(df_anomalies_latent.iloc[:, 0], df_anomalies_latent.iloc[:, 1],
                 c="black", s=10, marker="^", label="Samples")
     plt.legend()
