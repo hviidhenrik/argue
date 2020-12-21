@@ -193,6 +193,7 @@ class AnomalyGenerator:
         return self.generated_anomalies_latent_space
 
     def plot_latent_space(self, color_by_columns=None, save=False, show=True, ax=None):
+        df_nominal_latent_space = self.nominal_latent_space.copy()
         if color_by_columns is None:
             color_by_columns = [self.df_original_features.columns[0]]
         elif not isinstance(color_by_columns, list):
@@ -200,21 +201,20 @@ class AnomalyGenerator:
                 color_by_columns = self.df_original_features.columns.values
             else:
                 color_by_columns = [color_by_columns]  # if only a single string is received like "kv_flow"
-        df_nominal_latent_space = self.nominal_latent_space.copy()
-        pca_reduce = False
-        title_latent = "Generator latent space"
+        pca_plot = False
+        title_latent = "Generator nominal latent space"
         if self.neuralnet_latent_space_size > 2:
             pca = PCA(n_components=2).fit(df_nominal_latent_space)
             df_nominal_latent_space = pd.DataFrame(pca.fit_transform(df_nominal_latent_space))
             var_expl = 100 * pca.explained_variance_ratio_.sum()
-            title_latent = title_latent + "\nPCA reduced (var explained: {0:4.0f})%".format(var_expl)
-            pca_reduce = True
+            title_latent = title_latent + f"\nPCA transformed (variance explained:{var_expl:4.0f}%)"
+            pca_plot = True
 
         for coloring_col in color_by_columns:
             plt.scatter(df_nominal_latent_space.iloc[:, 0], df_nominal_latent_space.iloc[:, 1],
                         c=self.df_original_features[coloring_col], cmap='jet', s=10)
-            plt.xlabel("PC1" if pca_reduce else "z0")
-            plt.ylabel("PC2" if pca_reduce else "z1")
+            plt.xlabel("PC1" if pca_plot else "z0")
+            plt.ylabel("PC2" if pca_plot else "z1")
             clb = plt.colorbar()
             clb.set_label(coloring_col, rotation=0, labelpad=-30, y=1.05)
             plt.title(title_latent)
@@ -234,14 +234,12 @@ class AnomalyGenerator:
 if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
 
-    # import data
     df = pd.read_csv("..\\..\\data\\SSV_CWP\\train-data-small.csv", index_col="timelocal")
     df = df.dropna()
 
-    generator = AnomalyGenerator(neuralnet_first_hidden_layer_size=300,
+    generator = AnomalyGenerator(neuralnet_first_hidden_layer_size=12,
                                  neuralnet_latent_space_size=2)
-    generator.fit(df,
-                  epochs=10)
+    generator.fit(df, epochs=10)
     df_generated_anomalies = generator.generate_anomalies(100)
     print(df_generated_anomalies)
     print(df_generated_anomalies.describe())
