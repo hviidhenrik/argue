@@ -2,6 +2,7 @@
 *.csv
 figures/
 *.pickle
+archive/models/
 
 # Byte-compiled / optimized / DLL files / other files
 __pycache__/

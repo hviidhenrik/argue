@@ -1,9 +1,9 @@
 import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
 import numpy as np
-from pandas import DataFrame
-from dataclasses import dataclass, field
-from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
 from src.models.AAE.aae_utils import *
 from src.models.AAE.definitions import *
 import time
@@ -37,12 +37,22 @@ class AELossHandler:
                 self.discriminator_epoch_mean_accuracy.result(),
                 self.generator_epoch_mean_loss.result())
 
+
 # TODO add validation feature to training
+# TODO add early stopping feature
 class AdversarialAutoencoder:
-    def __init__(self, first_hidden_layer_dimension: int, latent_layer_dimension: int):
-        self.first_hidden_layer_dimension = first_hidden_layer_dimension
+    def __init__(self,
+                 latent_layer_dimension: int = 2,
+                 encoder_hidden_layers: list = [10, 8, 6, 4],
+                 decoder_hidden_layers: list = [4, 6, 8, 10],
+                 discriminator_hidden_layers: list = [10, 8, 6, 4],
+                 activation_function: tf.keras.layers = tf.keras.layers.LeakyReLU
+                 ):
         self.latent_layer_dimension = latent_layer_dimension
-        # TODO add options for discriminator dimensionality, too
+        self.encoder_hidden_layers = encoder_hidden_layers
+        self.decoder_hidden_layers = decoder_hidden_layers
+        self.discriminator_hidden_layers = discriminator_hidden_layers
+        self.activation_function = activation_function
         self.discriminator = None
         self.encoder = None
         self.decoder = None
@@ -50,10 +60,9 @@ class AdversarialAutoencoder:
         self.batch_size = None
         self.number_of_features = None
         self.number_of_train_data_rows = None
-        self.autoencoder_optimizer = None
-        self.discriminator_optimizer = None
-        self.generator_optimizer = None
-        # TODO architecture choices should be taken by __init__ method
+        self._autoencoder_optimizer = None
+        self._discriminator_optimizer = None
+        self._generator_optimizer = None
 
     def _prepare_dataset_in_batches(self, df_features: DataFrame):
         train_dataset = tf.data.Dataset.from_tensor_slices(df_features)
@@ -69,9 +78,9 @@ class AdversarialAutoencoder:
         return new_learning_rate
 
     def _set_learning_rates(self, learning_rate):
-        self.autoencoder_optimizer.lr = learning_rate
-        self.discriminator_optimizer.lr = learning_rate
-        self.generator_optimizer.lr = learning_rate
+        self._autoencoder_optimizer.lr = learning_rate
+        self._discriminator_optimizer.lr = learning_rate
+        self._generator_optimizer.lr = learning_rate
 
     def _compute_losses_and_update_weights(self, batch_x):
         def _update_model_weights(optimizer, gradients, trainable_variables):
@@ -89,13 +98,14 @@ class AdversarialAutoencoder:
 
         autoencoder_trainable_variables = self.encoder.trainable_variables + self.decoder.trainable_variables
         autoencoder_gradients = autoencoder_tape.gradient(reconstruction_loss, autoencoder_trainable_variables)
-        _update_model_weights(self.autoencoder_optimizer, autoencoder_gradients, autoencoder_trainable_variables)
+        _update_model_weights(self._autoencoder_optimizer, autoencoder_gradients, autoencoder_trainable_variables)
 
         # -------------------------------------------------------------------------------------------------------------
         # Discriminator
         with tf.GradientTape() as discriminator_tape:
             # TODO make this more generic, so arbitrary distributions can be given
-            real_distribution = tf.random.normal([batch_x.shape[0], self.latent_layer_dimension], mean=0.0, stddev=1.0)
+            real_distribution = tf.random.normal([batch_x.shape[0], self.latent_layer_dimension],
+                                                 mean=0, stddev=0.01)
             encoder_output = self.encoder(batch_x, training=True)
 
             discriminator_real_sample_output = self.discriminator(real_distribution, training=True)
@@ -112,7 +122,7 @@ class AdversarialAutoencoder:
 
         discriminator_gradients = discriminator_tape.gradient(discriminator_loss,
                                                               self.discriminator.trainable_variables)
-        _update_model_weights(self.discriminator_optimizer, discriminator_gradients,
+        _update_model_weights(self._discriminator_optimizer, discriminator_gradients,
                               self.discriminator.trainable_variables)
 
         # -------------------------------------------------------------------------------------------------------------
@@ -124,30 +134,32 @@ class AdversarialAutoencoder:
             generator_loss = self._generator_loss(discriminator_fake_sample_output, loss_weight=1)
 
         generator_gradients = generator_tape.gradient(generator_loss, self.encoder.trainable_variables)
-        _update_model_weights(self.generator_optimizer, generator_gradients, self.encoder.trainable_variables)
+        _update_model_weights(self._generator_optimizer, generator_gradients, self.encoder.trainable_variables)
 
         return reconstruction_loss, discriminator_loss, discriminator_accuracy, generator_loss
 
-    def fit(self, df_features_scaled: DataFrame,
+    def fit(self,
+            df_features_scaled: DataFrame,
             batch_size: int = 128,
             epochs: int = 10,
+            dropout_fraction: float = 0.2,
             base_learning_rate: float = 0.00025,
-            max_learning_rate: float = 0.0025):
+            max_learning_rate: float = 0.0025,
+            verbose: int = 2):
 
         self.number_of_train_data_rows = df_features_scaled.shape[0]
         self.number_of_features = df_features_scaled.shape[1]
         self.batch_size = batch_size
         self.epochs = epochs
-        self.encoder = self._make_encoder_model()
-        self.decoder = self._make_decoder_model()
-        self.discriminator = self._make_discriminator_model()
-        self.autoencoder_optimizer = tf.keras.optimizers.Adam(learning_rate=base_learning_rate)
-        self.discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=base_learning_rate)
-        self.generator_optimizer = tf.keras.optimizers.Adam(learning_rate=base_learning_rate)
+        self._build_encoder_model(dropout_fraction=dropout_fraction)
+        self._build_decoder_model(dropout_fraction=dropout_fraction)
+        self._build_discriminator_model(dropout_fraction=dropout_fraction)
+        self._autoencoder_optimizer = tf.keras.optimizers.Adam(learning_rate=base_learning_rate)
+        self._discriminator_optimizer = tf.keras.optimizers.Adam(learning_rate=base_learning_rate)
+        self._generator_optimizer = tf.keras.optimizers.Adam(learning_rate=base_learning_rate)
 
         step_size = 2 * np.ceil(self.number_of_train_data_rows / self.batch_size)
         global_step = 0
-
         train_dataset_in_batches = self._prepare_dataset_in_batches(df_features_scaled)
         # Training loop
         for epoch in range(self.epochs):
@@ -162,6 +174,9 @@ class AdversarialAutoencoder:
 
             loss_handler = AELossHandler()
             for batch_number, batch in enumerate(train_dataset_in_batches):
+                if verbose > 2:
+                    number_of_batches = int(np.floor(self.number_of_train_data_rows / batch_size))
+                    print(f"Epoch {epoch + 1}, batch {batch_number + 1}/{number_of_batches + 1}")
                 new_learning_rate = self._get_updated_learning_rate(base_learning_rate,
                                                                     global_step,
                                                                     max_learning_rate,
@@ -172,13 +187,16 @@ class AdversarialAutoencoder:
                 loss_handler.update_losses(*losses)
 
             epoch_time = time.time() - start
-            print(
-                'Epoch {:3d}: Time: {:.2f}s, ETA: {:.0f}s, AE loss: {:.4f}, Discriminator loss: {:.4f}, '
-                'discriminator accuracy: {:.4f}, generator loss: {:.4f}'.format(epoch, epoch_time,
-                                                                                epoch_time * (self.epochs - epoch),
-                                                                                *loss_handler.get_losses()
-                                                                                )
-            )
+            if verbose > 1:
+                print(
+                    'Epoch {}: Time: {:.2f}s, ETA: {:.0f}s, AE loss: {:.4f}, discriminator loss: {:.4f}, '
+                    'discriminator accuracy: {:.4f}, generator loss: {:.4f}'.format(epoch+1, epoch_time,
+                                                                                    epoch_time * (self.epochs - epoch),
+                                                                                    *loss_handler.get_losses()
+                                                                                    )
+                )
+        if verbose > 0:
+            print("\n... Fitting procedure complete - model fitted succesfully!")
 
     def predict(self, df_features_scaled):
         latent_space = self.encoder.predict(df_features_scaled)
@@ -187,41 +205,75 @@ class AdversarialAutoencoder:
     def predict_latent_space(self, df_features_scaled):
         return self.encoder.predict(df_features_scaled)
 
-    def _make_encoder_model(self):
+    def plot_latent_space(self, df_features_scaled, coloring_column: DataFrame = None):
+        df_latent_space = pd.DataFrame(self.predict_latent_space(df_features_scaled))
+        title_latent = "AAE latent space"
+        pca_plot = self.latent_layer_dimension > 2
+        if pca_plot:
+            pca = PCA(n_components=2)
+            df_latent_space = pd.DataFrame(pca.fit_transform(df_latent_space))
+            var_expl = 100 * pca.explained_variance_ratio_.sum()
+            title_latent = title_latent + f"\nPCA transformed (variance explained:{var_expl:4.0f}%)"
+        if coloring_column is None:
+            color = pd.DataFrame(df_features_scaled).iloc[:, 0]
+            colorbar_label = "First (scaled) feature column"
+        else:
+            color = coloring_column.iloc[:, 0]
+            colorbar_label = coloring_column.columns.values[0]
+
+        plt.scatter(df_latent_space.iloc[:, 0], df_latent_space.iloc[:, 1],
+                    c=color, cmap='jet', s=10)
+        plt.xlabel("PC1" if pca_plot else "z0")
+        plt.ylabel("PC2" if pca_plot else "z1")
+        clb = plt.colorbar()
+        clb.set_label(colorbar_label, rotation=0, labelpad=-30, y=1.05)
+        plt.title(title_latent)
+        plt.show()
+
+    def _build_encoder_model(self, dropout_fraction: float = 0.2):
+        hidden_layers = self.encoder_hidden_layers
         inputs = tf.keras.Input(shape=(self.number_of_features,))
-        x = tf.keras.layers.Dense(self.first_hidden_layer_dimension)(inputs)
-        x = tf.keras.layers.LeakyReLU()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
-        x = tf.keras.layers.Dense(self.first_hidden_layer_dimension - 2)(x)
-        x = tf.keras.layers.LeakyReLU()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
-        encoded = tf.keras.layers.Dense(self.latent_layer_dimension)(x)
-        model = tf.keras.Model(inputs=inputs, outputs=encoded)
-        return model
+        x = tf.keras.layers.Dense(units=hidden_layers[0])(inputs)
+        x = self.activation_function()(x)
+        x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        remaining_layers = hidden_layers[1:]
+        for units in remaining_layers:
+            x = tf.keras.layers.Dense(units=units)(x)
+            x = self.activation_function()(x)
+            x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        latent_space = tf.keras.layers.Dense(self.latent_layer_dimension)(x)
+        model = tf.keras.Model(inputs=inputs, outputs=latent_space)
+        self.encoder = model
 
-    def _make_decoder_model(self):
-        encoded = tf.keras.Input(shape=(self.latent_layer_dimension,))
-        x = tf.keras.layers.Dense(self.first_hidden_layer_dimension - 2)(encoded)
-        x = tf.keras.layers.LeakyReLU()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
-        x = tf.keras.layers.Dense(self.first_hidden_layer_dimension)(x)
-        x = tf.keras.layers.LeakyReLU()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
-        reconstruction = tf.keras.layers.Dense(self.number_of_features, activation='sigmoid')(x)
-        model = tf.keras.Model(inputs=encoded, outputs=reconstruction)
-        return model
+    def _build_decoder_model(self, dropout_fraction: float = 0.2):
+        hidden_layers = self.decoder_hidden_layers
+        latent_space = tf.keras.Input(shape=(self.latent_layer_dimension,))
+        x = tf.keras.layers.Dense(units=hidden_layers[0])(latent_space)
+        x = self.activation_function()(x)
+        x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        remaining_layers = hidden_layers[1:]
+        for units in remaining_layers:
+            x = tf.keras.layers.Dense(units=units)(x)
+            x = self.activation_function()(x)
+            x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        reconstruction = tf.keras.layers.Dense(self.number_of_features)(x)
+        model = tf.keras.Model(inputs=latent_space, outputs=reconstruction)
+        self.decoder = model
 
-    def _make_discriminator_model(self):
-        encoded = tf.keras.Input(shape=(self.latent_layer_dimension,))
-        x = tf.keras.layers.Dense(self.first_hidden_layer_dimension)(encoded)
-        x = tf.keras.layers.LeakyReLU()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
-        x = tf.keras.layers.Dense(self.first_hidden_layer_dimension - 2)(x)
-        x = tf.keras.layers.LeakyReLU()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
+    def _build_discriminator_model(self, dropout_fraction: float = 0.2):
+        hidden_layers = self.discriminator_hidden_layers
+        latent_space = tf.keras.Input(shape=(self.latent_layer_dimension,))
+        x = tf.keras.layers.Dense(units=hidden_layers[0])(latent_space)
+        x = self.activation_function()(x)
+        x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        remaining_layers = hidden_layers[1:]
+        for units in remaining_layers:
+            x = tf.keras.layers.Dense(units=units)(x)
+            x = self.activation_function()(x)
+            x = tf.keras.layers.Dropout(dropout_fraction)(x)
         prediction_real_or_fake = tf.keras.layers.Dense(1)(x)
-        model = tf.keras.Model(inputs=encoded, outputs=prediction_real_or_fake)
-        return model
+        model = tf.keras.Model(inputs=latent_space, outputs=prediction_real_or_fake)
+        self.discriminator = model
 
     @staticmethod
     def _reconstruction_loss(inputs, reconstruction, loss_weight: float = 1):
@@ -240,12 +292,41 @@ class AdversarialAutoencoder:
         cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
         return loss_weight * cross_entropy(tf.ones_like(fake_output), fake_output)
 
+    def save(self, model_folder: str):
+        model_list = [self.encoder, self.decoder, self.discriminator]
+        for model_number, model in enumerate(model_list):
+            filename = MODELS_PATH / model_folder / MODEL_NUMBER_TO_NAME_MAPPING[str(model_number)]
+            tf.keras.models.save_model(model, filename)
+        print(f"Model saved succesfully in {MODELS_PATH}")
+
+    def load(self, model_folder: str):
+        model_list = [self.encoder, self.decoder, self.discriminator]
+        loaded_models = {"encoder": None, "decoder": None, "discriminator": None}
+        for model_number, loaded_model in enumerate(model_list):
+            model = MODEL_NUMBER_TO_NAME_MAPPING[str(model_number)]
+            filename = MODELS_PATH / model_folder / model
+            loaded_models[model] = tf.keras.models.load_model(filename, compile=False)
+        self.encoder = loaded_models["encoder"]
+        self.decoder = loaded_models["decoder"]
+        self.discriminator = loaded_models["discriminator"]
+        print(f"Model loaded succesfully from {MODELS_PATH}")
+
+
 
 if __name__ == "__main__":
     pd.set_option('display.max_columns', None)
-    df_features = get_local_pump_data(small_dataset=True, station="SSV", component="CWP", pump_number="10")
+    df_features = get_local_pump_data(small_dataset=False, station="SSV", component="CWP", pump_number="10")
+    df_features = df_features.dropna()
 
-    aae = AdversarialAutoencoder(first_hidden_layer_dimension=12, latent_layer_dimension=2)
+    aae = AdversarialAutoencoder(latent_layer_dimension=2,
+                                 encoder_hidden_layers=[10, 8, 6, 4],
+                                 decoder_hidden_layers=[4, 6, 8, 10],
+                                 discriminator_hidden_layers=[10, 8, 6, 4, 2])
     scaler = MinMaxScaler()
     df_features_scaled = scaler.fit_transform(df_features)
-    aae.fit(df_features_scaled)
+    aae.fit(df_features_scaled, dropout_fraction=0.3, epochs=10, batch_size=1024, verbose=3)
+    aae.save("ssv_cwp_pump10_aae")
+    aae = AdversarialAutoencoder()
+    aae.load("ssv_cwp_pump10_aae")
+    foo = aae.predict_latent_space(df_features_scaled)
+    aae.plot_latent_space(df_features_scaled, df_features[["kv_flow"]])
