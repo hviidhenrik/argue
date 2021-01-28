@@ -4,9 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.decomposition import PCA
-from src.models.AAE.aae_utils import *
-from src.models.AAE.definitions import *
+from src.utilities.utility_functions import *
+from src.data.data_utils import *
+from src.config.definitions import *
 import time
+
+MODEL_NUMBER_TO_NAME_MAPPING = {"0": "encoder", "1": "decoder", "2": "discriminator"}
 
 
 class AELossHandler:
@@ -292,39 +295,50 @@ class AdversarialAutoencoder:
         cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
         return loss_weight * cross_entropy(tf.ones_like(fake_output), fake_output)
 
-    def save(self, model_folder: str):
+    def save(self, filename: str = None):
         model_list = [self.encoder, self.decoder, self.discriminator]
         for model_number, model in enumerate(model_list):
-            filename = MODELS_PATH / model_folder / MODEL_NUMBER_TO_NAME_MAPPING[str(model_number)]
+            model_name = MODEL_NUMBER_TO_NAME_MAPPING[str(model_number)]
+            if filename is None:
+                filename = get_model_archive_path() / model_name
+            else:
+                filename = get_model_archive_path() / f"{filename}_{model_name}"
             tf.keras.models.save_model(model, filename)
-        print(f"Model saved succesfully in {MODELS_PATH}")
+        print(f"Model saved succesfully in {get_model_archive_path()}")
 
-    def load(self, model_folder: str):
+    def load(self, filename: str = None):
         model_list = [self.encoder, self.decoder, self.discriminator]
         loaded_models = {"encoder": None, "decoder": None, "discriminator": None}
         for model_number, loaded_model in enumerate(model_list):
             model = MODEL_NUMBER_TO_NAME_MAPPING[str(model_number)]
-            filename = MODELS_PATH / model_folder / model
+            if filename is None:
+                filename = get_model_archive_path() / model
+            else:
+                filename = get_model_archive_path() / f"{filename}_{model}"
             loaded_models[model] = tf.keras.models.load_model(filename, compile=False)
         self.encoder = loaded_models["encoder"]
         self.decoder = loaded_models["decoder"]
         self.discriminator = loaded_models["discriminator"]
-        print(f"Model loaded succesfully from {MODELS_PATH}")
+        print(f"Model loaded succesfully from {get_model_archive_path()}")
 
 
 
 if __name__ == "__main__":
+    is_debugging = True
+    # is_debugging = False
     pd.set_option('display.max_columns', None)
-    df_features = get_local_pump_data(small_dataset=False, station="SSV", component="CWP", pump_number="10")
+    filename = get_pump_data_path() / f"data_cwp_pump_10_{get_dataset_purpose_as_str(is_debugging)}.csv"
+    df_features = get_local_data(filename)
     df_features = df_features.dropna()
+    print(df_features.shape)
 
     aae = AdversarialAutoencoder(latent_layer_dimension=2,
-                                 encoder_hidden_layers=[10, 8, 6, 4],
-                                 decoder_hidden_layers=[4, 6, 8, 10],
-                                 discriminator_hidden_layers=[10, 8, 6, 4, 2])
+                                 encoder_hidden_layers=[6, 4],
+                                 decoder_hidden_layers=[4, 6],
+                                 discriminator_hidden_layers=[6, 4, 2])
     scaler = MinMaxScaler()
     df_features_scaled = scaler.fit_transform(df_features)
-    aae.fit(df_features_scaled, dropout_fraction=0.3, epochs=10, batch_size=1024, verbose=3)
+    aae.fit(df_features_scaled, dropout_fraction=0.3, epochs=1, batch_size=1024, verbose=3)
     aae.save("ssv_cwp_pump10_aae")
     aae = AdversarialAutoencoder()
     aae.load("ssv_cwp_pump10_aae")
