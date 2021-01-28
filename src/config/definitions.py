@@ -10,7 +10,7 @@ _AAE_PATH = _SRC_PATH / "models" / "AAE"
 _ANOGEN_PATH = _SRC_PATH / "models" / "AnoGen"
 _DOPING_PATH = _SRC_PATH / "models" / "Doping"
 _FIXED_CYCLE_PATH = _SRC_PATH / "models" / "FixedCycleTest"
-
+_FIXED_CYCLE_FIGURES_PATH = _FIXED_CYCLE_PATH / "figures"
 
 def get_root_path() -> WindowsPath:
     return _ROOT_PATH
@@ -50,3 +50,7 @@ def get_doping_path() -> WindowsPath:
 
 def get_fixed_cycle_path() -> WindowsPath:
     return _FIXED_CYCLE_PATH
+
+
+def get_fixed_cycle_figures_path() -> WindowsPath:
+    return _FIXED_CYCLE_FIGURES_PATH

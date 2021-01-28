@@ -1,7 +1,8 @@
-from typing import Union
+from typing import Union, Tuple, Any, List
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pandas import DataFrame
+import numpy as np
 
 from src.config.definitions import *
 
@@ -46,7 +47,10 @@ def plot_missing_values_heatmap(df: DataFrame, title: str = None, save_path: Uni
     return fig
 
 
-def plot_column_as_timeseries(df_column: DataFrame, title: str = None, save_path: Union[str, WindowsPath] = None
+def plot_column_as_timeseries(df_column: DataFrame,
+                              title: str = None,
+                              save_path: Union[str, WindowsPath] = None,
+                              **kwargs
 ) -> None:
     """
     Plot a given dataframe column as a timeseries.
@@ -58,7 +62,7 @@ def plot_column_as_timeseries(df_column: DataFrame, title: str = None, save_path
     :return: the figure object from matplotlib
     """
     name = df_column.name
-    fig = df_column.plot(rot=20)
+    fig = df_column.plot(rot=20, **kwargs)
     plt.ylabel(name)
     plt.xlabel("Time")
     if title is None:
@@ -68,3 +72,26 @@ def plot_column_as_timeseries(df_column: DataFrame, title: str = None, save_path
     if save_path is not None:
         plt.savefig(save_path)
     return fig
+
+
+def find_bin_with_most_values(df_column: DataFrame, interval_size: float) -> Tuple[float, float]:
+    bins = np.arange(np.floor(df_column.min()), np.ceil(df_column.max()), interval_size)
+    count, edges = np.histogram(np.array(df_column).reshape(-1, 1), bins=bins)
+    edge_low = edges[np.argmax(count)]
+    edge_high = edges[np.argmax(count)+1]
+    return edge_low, edge_high
+
+
+
+def find_all_nonempty_bins(df_column: DataFrame,
+                           interval_size: float,
+                           required_bin_size: int = 1
+                           ) -> List[Tuple[float, float]]:
+    bins = np.arange(np.floor(df_column.min()), np.ceil(df_column.max()), interval_size)
+    count, edges = np.histogram(np.array(df_column).reshape(-1, 1), bins=bins)
+    indices_nonempty = [i for i, count in enumerate(count) if count >= required_bin_size]
+    non_empty_intervals = edges[indices_nonempty]
+    edge_interval_list = []
+    for index, interval_left in enumerate(non_empty_intervals):
+        edge_interval_list.append((non_empty_intervals[index], non_empty_intervals[index]+interval_size))
+    return edge_interval_list

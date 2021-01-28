@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -17,56 +19,42 @@ is_debugging = True
 use_saved_imputer = True
 # use_saved_imputer = False
 
-# load data
-filename = get_pump_data_path() / f"data_cwp_pump_10_{get_dataset_purpose_as_str(is_debugging)}.csv"
-df = get_local_data(filename)
-
-# inspect missing values
-plot_missing_values_bar_chart(df, save_path=get_fixed_cycle_path() / "figures" / "missingvalues.png")
-plt.show()
-
-plot_missing_values_heatmap(df, save_path=get_fixed_cycle_path() / "figures" / "missingvalues_heatmap.png")
-plt.show()
-
-print(df.dropna()["flush_indicator"].mean())
-
-
-imputer = FFNImputer(["flush_indicator"],
-                     hidden_layers=[14, 12, 10, 8, 6, 4, 2],
-                     activation_functions="elu",
-                     epochs=10,
-                     loss="binary_crossentropy",
-                     metrics="accuracy")
-if use_saved_imputer:
-    imputer.load_model(get_model_archive_path() / "flush_indicator_impute_model")
-    df = imputer.impute(df)
-else:
-    imputer.fit(df, class_weight={0: 4, 1: 65})
-    df = imputer.impute(df)
-    imputer.save_model(get_model_archive_path() / "flush_indicator_impute_model")
-
-df["flush_indicator"] = np.round(df["flush_indicator"])
-
-plot_missing_values_heatmap(df, save_path=get_fixed_cycle_path() / "figures" / "missingvalues_imputed_heatmap.png")
-plt.show()
-
-# look at fixed cycle down here
-df = df.dropna()
-print(df.shape)
-
 filename = f"data_cwp_pump_10_{get_dataset_purpose_as_str(is_debugging)}_imputed.csv"
-save_local_data(df, get_data_path() / "ssv_cooling_water_pump" / filename)
+df = get_local_data(get_data_path() / "ssv_cooling_water_pump" / filename)
 
-plot_column_as_timeseries(df["effect_pump_10"])
+# investigate stationarity given a "driving" feature in a fixed interval
+feature_to_filter_on = "rotation"
+
+plot_column_as_timeseries(df[feature_to_filter_on])
 plt.show()
 
-sns.histplot(df["effect_pump_10"])
+sns.histplot(df[feature_to_filter_on])
+plt.show()
+
+feature_min, feature_max = find_bin_with_most_values(df[feature_to_filter_on], interval_size=0.5)
+
+# df_feature = df[(df[feature_to_filter_on] >= feature_min) & (df[feature_to_filter_on] < feature_max)]
+# for column in df_feature.columns:
+#     if "vibr" in column:
+#         plot_column_as_timeseries(df_feature[column],
+#                                   title=f"Feature {column} for {feature_to_filter_on} in ({feature_min}, {feature_max})",
+#                                   save_path=get_fixed_cycle_figures_path() / f"{column}_interval_fixed_{feature_to_filter_on}")
+#         plt.show()
+
+edge_interval_list = find_all_nonempty_bins(df[feature_to_filter_on], interval_size=1, required_bin_size=50)
+feature_of_interest = "vibr_motor_y"
+
+df[feature_of_interest].plot()
 plt.show()
 
 
-
-
-df_effect = df[(df["effect_pump_10"] > 400) & (df["effect_pump_10"] < 600)]
-for column in df_effect.columns:
-    plot_column_as_timeseries(df_effect[column])
+for interval in edge_interval_list:
+    feature_min, feature_max = interval
+    df_feature = df[(df[feature_to_filter_on] >= feature_min) & (df[feature_to_filter_on] < feature_max)]
+    filename = f"{feature_to_filter_on}_in_{feature_min}_to_{feature_max}_for_{feature_of_interest}.png"
+    plot_column_as_timeseries(df_feature[feature_of_interest],
+                              title=f"Feature {feature_of_interest} for {feature_to_filter_on} in "
+                                    f"({feature_min}, {feature_max})",
+                              save_path=get_fixed_cycle_figures_path() / "fixed_rotation" / filename)
     plt.show()
+

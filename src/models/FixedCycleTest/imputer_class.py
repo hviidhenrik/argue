@@ -1,4 +1,4 @@
-from typing import Union, List
+from typing import Union, List, Any
 import tensorflow as tf
 import pandas as pd
 import pickle
@@ -15,13 +15,15 @@ class FFNImputer:
                  activation_functions: Union[str, List[str]] = "elu",
                  epochs: int = 30,
                  loss: str = "binary_crossentropy",
-                 metrics: str = "accuracy"):
+                 metrics: str = "accuracy",
+                 optimizer: Any = tf.keras.optimizers.Adam(learning_rate=0.0001)):
         self.columns_to_impute = columns_to_impute
         self.hidden_layers = hidden_layers
         self.activation_functions = activation_functions
         self.epochs = epochs
         self.loss = loss
         self.metrics = metrics
+        self.optimizer = optimizer
         self.scaler = MinMaxScaler()
         self.model = None
 
@@ -59,7 +61,8 @@ class FFNImputer:
             x = tf.keras.layers.Dropout(0)(x)
         outputs = tf.keras.layers.Dense(N_targets, activation=activation_functions[-1])(x)
         imputer = tf.keras.Model(inputs=inputs, outputs=outputs)
-        imputer.compile(optimizer="adam", loss=self.loss, metrics=self.metrics)
+        imputer.compile(optimizer=self.optimizer, loss=self.loss, metrics=self.metrics)
+        imputer.summary()
         self.model = imputer
 
     def fit(self, df: DataFrame, **kwargs) -> None:
