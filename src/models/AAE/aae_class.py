@@ -46,16 +46,18 @@ class AELossHandler:
 class AdversarialAutoencoder:
     def __init__(self,
                  latent_layer_dimension: int = 2,
-                 encoder_hidden_layers: list = [10, 8, 6, 4],
-                 decoder_hidden_layers: list = [4, 6, 8, 10],
-                 discriminator_hidden_layers: list = [10, 8, 6, 4],
-                 activation_function: tf.keras.layers = tf.keras.layers.LeakyReLU
+                 encoder_hidden_layers: List = None,
+                 decoder_hidden_layers: List = None,
+                 discrim_hidden_layers: List = None,
+                 autoencoder_activation_function: tf.keras.layers = "elu",
+                 discrim_activation_function: tf.keras.layers = "elu",
                  ):
         self.latent_layer_dimension = latent_layer_dimension
-        self.encoder_hidden_layers = encoder_hidden_layers
-        self.decoder_hidden_layers = decoder_hidden_layers
-        self.discriminator_hidden_layers = discriminator_hidden_layers
-        self.activation_function = activation_function
+        self.encoder_hidden_layers = encoder_hidden_layers if encoder_hidden_layers is not None else [10, 8, 6, 4]
+        self.decoder_hidden_layers = decoder_hidden_layers if decoder_hidden_layers is not None else [4, 6, 8, 10]
+        self.discrim_hidden_layers = discrim_hidden_layers if discrim_hidden_layers is not None else [10, 8, 6, 4]
+        self.autoencoder_activation_function = autoencoder_activation_function
+        self.discrim_activation_function = discrim_activation_function
         self.discriminator = None
         self.encoder = None
         self.decoder = None
@@ -67,13 +69,79 @@ class AdversarialAutoencoder:
         self._discriminator_optimizer = None
         self._generator_optimizer = None
 
+    def _build_encoder_model(self, dropout_fraction: float = 0.2):
+        hidden_layers = self.encoder_hidden_layers
+        inputs = tf.keras.Input(shape=(self.number_of_features,))
+        x = tf.keras.layers.Dense(units=hidden_layers[0], activation=self.autoencoder_activation_function)(inputs)
+        # x = self.autoencoder_activation_function()(x)
+        x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        remaining_layers = hidden_layers[1:]
+        for units in remaining_layers:
+            x = tf.keras.layers.Dense(units=units, activation=self.autoencoder_activation_function)(x)
+            # x = self.autoencoder_activation_function()(x)
+            x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        latent_space = tf.keras.layers.Dense(self.latent_layer_dimension,
+                                             activation=self.autoencoder_activation_function)(x)
+        model = tf.keras.Model(inputs=inputs, outputs=latent_space)
+        self.encoder = model
+
+    def _build_decoder_model(self, dropout_fraction: float = 0.2):
+        hidden_layers = self.decoder_hidden_layers
+        latent_space = tf.keras.Input(shape=(self.latent_layer_dimension,))
+        x = tf.keras.layers.Dense(units=hidden_layers[0],
+                                  activation=self.autoencoder_activation_function)(latent_space)
+        # x = self.autoencoder_activation_function()(x)
+        x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        remaining_layers = hidden_layers[1:]
+        for units in remaining_layers:
+            x = tf.keras.layers.Dense(units=units, activation=self.autoencoder_activation_function)(x)
+            # x = self.autoencoder_activation_function()(x)
+            x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        reconstruction = tf.keras.layers.Dense(self.number_of_features, activation="linear")(x)
+        model = tf.keras.Model(inputs=latent_space, outputs=reconstruction)
+        self.decoder = model
+
+    def _build_discriminator_model(self, dropout_fraction: float = 0.2):
+        hidden_layers = self.discrim_hidden_layers
+        latent_space = tf.keras.Input(shape=(self.latent_layer_dimension,))
+        x = tf.keras.layers.Dense(units=hidden_layers[0],
+                                  activation=self.discrim_activation_function)(latent_space)
+        # x = self.discrim_activation_function()(x)
+        x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        remaining_layers = hidden_layers[1:]
+        for units in remaining_layers:
+            x = tf.keras.layers.Dense(units=units, activation=self.discrim_activation_function)(x)
+            # x = self.discrim_activation_function()(x)
+            x = tf.keras.layers.Dropout(dropout_fraction)(x)
+        prediction_real_or_fake = tf.keras.layers.Dense(1, activation="sigmoid")(x)
+        model = tf.keras.Model(inputs=latent_space, outputs=prediction_real_or_fake)
+        self.discriminator = model
+
+    @staticmethod
+    def _reconstruction_loss(inputs, reconstruction, loss_weight: float = 1):
+        mse = tf.keras.losses.MeanSquaredError()
+        return loss_weight * mse(inputs, reconstruction)
+
+    @staticmethod
+    def _discriminator_loss(real_output, fake_output, loss_weight: float = 1):
+        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        loss_real = cross_entropy(tf.ones_like(real_output), real_output)
+        loss_fake = cross_entropy(tf.zeros_like(fake_output), fake_output)
+        return loss_weight * (loss_fake + loss_real)
+
+    @staticmethod
+    def _generator_loss(fake_output, loss_weight: float = 1):
+        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True) # TODO should this be Binary XE?
+        return loss_weight * cross_entropy(tf.ones_like(fake_output), fake_output)
+
     def _prepare_dataset_in_batches(self, df_features: DataFrame):
         train_dataset = tf.data.Dataset.from_tensor_slices(df_features)
         train_dataset = train_dataset.shuffle(buffer_size=self.number_of_train_data_rows)
         train_dataset = train_dataset.batch(self.batch_size)
         return train_dataset
 
-    def _get_updated_learning_rate(self, base_learning_rate, global_step, max_learning_rate, step_size):
+    @staticmethod
+    def _get_updated_learning_rate(base_learning_rate, global_step, max_learning_rate, step_size):
         global_step = global_step + 1
         cycle = np.floor(1 + global_step / (2 * step_size))
         x_lr = np.abs(global_step / step_size - 2 * cycle + 1)
@@ -233,68 +301,6 @@ class AdversarialAutoencoder:
         plt.title(title_latent)
         plt.show()
 
-    def _build_encoder_model(self, dropout_fraction: float = 0.2):
-        hidden_layers = self.encoder_hidden_layers
-        inputs = tf.keras.Input(shape=(self.number_of_features,))
-        x = tf.keras.layers.Dense(units=hidden_layers[0])(inputs)
-        x = self.activation_function()(x)
-        x = tf.keras.layers.Dropout(dropout_fraction)(x)
-        remaining_layers = hidden_layers[1:]
-        for units in remaining_layers:
-            x = tf.keras.layers.Dense(units=units)(x)
-            x = self.activation_function()(x)
-            x = tf.keras.layers.Dropout(dropout_fraction)(x)
-        latent_space = tf.keras.layers.Dense(self.latent_layer_dimension)(x)
-        model = tf.keras.Model(inputs=inputs, outputs=latent_space)
-        self.encoder = model
-
-    def _build_decoder_model(self, dropout_fraction: float = 0.2):
-        hidden_layers = self.decoder_hidden_layers
-        latent_space = tf.keras.Input(shape=(self.latent_layer_dimension,))
-        x = tf.keras.layers.Dense(units=hidden_layers[0])(latent_space)
-        x = self.activation_function()(x)
-        x = tf.keras.layers.Dropout(dropout_fraction)(x)
-        remaining_layers = hidden_layers[1:]
-        for units in remaining_layers:
-            x = tf.keras.layers.Dense(units=units)(x)
-            x = self.activation_function()(x)
-            x = tf.keras.layers.Dropout(dropout_fraction)(x)
-        reconstruction = tf.keras.layers.Dense(self.number_of_features)(x)
-        model = tf.keras.Model(inputs=latent_space, outputs=reconstruction)
-        self.decoder = model
-
-    def _build_discriminator_model(self, dropout_fraction: float = 0.2):
-        hidden_layers = self.discriminator_hidden_layers
-        latent_space = tf.keras.Input(shape=(self.latent_layer_dimension,))
-        x = tf.keras.layers.Dense(units=hidden_layers[0])(latent_space)
-        x = self.activation_function()(x)
-        x = tf.keras.layers.Dropout(dropout_fraction)(x)
-        remaining_layers = hidden_layers[1:]
-        for units in remaining_layers:
-            x = tf.keras.layers.Dense(units=units)(x)
-            x = self.activation_function()(x)
-            x = tf.keras.layers.Dropout(dropout_fraction)(x)
-        prediction_real_or_fake = tf.keras.layers.Dense(1)(x)
-        model = tf.keras.Model(inputs=latent_space, outputs=prediction_real_or_fake)
-        self.discriminator = model
-
-    @staticmethod
-    def _reconstruction_loss(inputs, reconstruction, loss_weight: float = 1):
-        mse = tf.keras.losses.MeanSquaredError()
-        return loss_weight * mse(inputs, reconstruction)
-
-    @staticmethod
-    def _discriminator_loss(real_output, fake_output, loss_weight: float = 1):
-        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        loss_real = cross_entropy(tf.ones_like(real_output), real_output)
-        loss_fake = cross_entropy(tf.zeros_like(fake_output), fake_output)
-        return loss_weight * (loss_fake + loss_real)
-
-    @staticmethod
-    def _generator_loss(fake_output, loss_weight: float = 1):
-        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        return loss_weight * cross_entropy(tf.ones_like(fake_output), fake_output)
-
     def save(self, filename: str = None):
         model_list = [self.encoder, self.decoder, self.discriminator]
         for model_number, model in enumerate(model_list):
@@ -335,7 +341,7 @@ if __name__ == "__main__":
     aae = AdversarialAutoencoder(latent_layer_dimension=2,
                                  encoder_hidden_layers=[6, 4],
                                  decoder_hidden_layers=[4, 6],
-                                 discriminator_hidden_layers=[6, 4, 2])
+                                 discrim_hidden_layers=[6, 4, 2])
     scaler = MinMaxScaler()
     df_features_scaled = scaler.fit_transform(df_features)
     aae.fit(df_features_scaled, dropout_fraction=0.3, epochs=1, batch_size=1024, verbose=3)
@@ -343,4 +349,4 @@ if __name__ == "__main__":
     aae = AdversarialAutoencoder()
     aae.load("ssv_cwp_pump10_aae")
     foo = aae.predict_latent_space(df_features_scaled)
-    aae.plot_latent_space(df_features_scaled, df_features[["kv_flow"]])
+    aae.plot_latent_space(df_features_scaled, df_features[["flow"]])
