@@ -344,18 +344,25 @@ if __name__ == "__main__":
     # df.plot(subplots=True)
     # plt.show()
 
-    df[["x1", "x2", "x3"]] = StandardScaler().fit_transform(df[["x1", "x2", "x3"]])
+    scaler = StandardScaler()
+    df[["x1", "x2", "x3"]] = scaler.fit_transform(df[["x1", "x2", "x3"]])
 
     model = ARGUE(number_of_decoders=3).build_model()
-    model.fit(df.drop(columns=["class"]), df["class"], epochs=1, number_of_batches=8, batch_size=256,
+    model.fit(df.drop(columns=["class"]), df["class"], epochs=10, number_of_batches=8, batch_size=256,
               verbose=1, N_noise_samples=N_1)
 
     indices = [0, N_2 - 1, N_2 + N_3 - 1]
     x_new = df[["x1", "x2", "x3"]].iloc[indices]
-    anomaly = pd.DataFrame({"x1": [100000 for _ in range(6)],
-                            "x2": [100000 for _ in range(6)],
-                            "x3": [100000 for _ in range(6)]})
+    # anomaly = pd.DataFrame({"x1": np.random.normal(1000, 15, (15,3)),
+    #                         "x2": np.random.normal(3, 1, (15,3)),
+    #                         "x3": np.random.normal(10, 1, (15, 3))
+    #                         })
+    anomaly = pd.DataFrame(np.random.normal(loc=[1000, 3, 10],
+                                            scale=[15, 1, 1],
+                                            size=(15, 3)),
+                           columns=["x1", "x2", "x3"])
+    anomaly = pd.DataFrame(scaler.transform(anomaly), columns=anomaly.columns)
+
     x_new = pd.concat([x_new, anomaly]).reset_index(drop=True)
-    # print(x_new)
     preds = model.predict(x_new)
     print(preds)
