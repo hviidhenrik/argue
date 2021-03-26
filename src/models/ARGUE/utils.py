@@ -55,3 +55,8 @@ def network_block(inputs, units_in_layers: List[int], activation="selu"):
     for units in units_in_layers:
         x = Dense(units, activation=activation)(x)
     return x
+
+
+def vprint(verbose: Union[bool, int], str_to_print: str):
+    if verbose:
+        print(str_to_print)

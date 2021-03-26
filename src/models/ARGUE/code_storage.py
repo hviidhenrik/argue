@@ -50,3 +50,33 @@ activation_model = Model(inputs=inputs, outputs=activations)
 # x = self.encoder.activation_model(inputs)
 # outputs = self.alarm.keras_model(x)
 # self.input_to_alarm = Model(inputs, outputs, name="x->encoder->expert->alarm->y")
+
+
+vprint(verbose, "\n=== Phase 2: training alarm network ===")
+for epoch in range(epochs):
+    vprint(verbose, f"\n>> Epoch {epoch}")
+    epoch_loss = []
+    epoch_metric = []
+    for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
+        vprint(step % 20 == 0, f"\nStep: {step}")
+        with tf.GradientTape(persistent=True) as tape:
+            for name, model in self.input_to_alarm_dict.items():
+                predicted_alarm = model(x_batch_train, training=True)
+                true_alarm = (1 - true_gating.numpy())[:, int(name[-1])].reshape((-1, 1))
+                loss_value = alarm_loss(true_alarm, predicted_alarm)
+                vprint(step % 20 == 0, f"Alarm model {name} batch loss: {float(loss_value)}")
+                loss_value += loss_value
+
+        epoch_loss.append(float(loss_value))
+        gradients = tape.gradient(loss_value, self.alarm.keras_model.trainable_weights)
+        alarm_optimizer.apply_gradients(zip(gradients, self.alarm.keras_model.trainable_weights))
+        alarm_metric.update_state(true_alarm, predicted_alarm)
+        error_metric = alarm_metric.result()
+        epoch_metric.append(error_metric)
+        alarm_metric.reset_states()
+
+        if step % 40 == 0 and verbose > 1:
+            print(f"Batch {step} training loss: {float(loss_value):.4f}, ")
+
+    vprint(verbose, f"Alarm epoch loss: {np.mean(epoch_loss):.4f}, "
+                    f"Binary accuracy: {np.mean(epoch_metric):.4f}")

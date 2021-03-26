@@ -13,6 +13,7 @@ from tensorflow.keras.optimizers import Nadam
 from dataclasses import dataclass
 from pandas import DataFrame
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.utils import shuffle
 from src.models.autoencoder.base import AutoencoderMixin
 from src.models.base.plot_mixin import PlotsMixin, save_or_show_plot
 from src.models.ARGUE.utils import *
@@ -72,7 +73,7 @@ class ARGUE:
                     encoder_activation: Union[str] = "selu",
                     decoders_activation: Union[str] = "selu",
                     alarm_activation: Union[str] = "selu",
-                    gating_activation: Union[str] = "selu"):
+                    gating_activation: Union[str] = "selu", ):
         # set constants
         self.encoder_activation_dim = np.sum(encoder_hidden_layers)
         self.decoder_activation_dim = np.sum(decoders_hidden_layers)
@@ -129,8 +130,14 @@ class ARGUE:
         decoder_number = decoder.name[-1]
         return Model(inputs, outputs, name=f"autoencoder_{decoder_number}")
 
-    def fit(self, df: Union[DataFrame, np.array], partition_labels: Union[DataFrame, List[int]],
-            batch_size: int = 128, epochs: int = 50, number_of_batches: int = 5):
+    def fit(self,
+            x_train: Union[DataFrame, np.array],
+            partition_labels: Union[DataFrame, List[int]],
+            batch_size: int = 128,
+            epochs: int = 50,
+            number_of_batches: int = 5,
+            N_noise_samples: int = None,
+            verbose: int = 1):
         """
         Training loop to fit the model.
 
@@ -141,30 +148,33 @@ class ARGUE:
 
         labels = list(partition_labels)
         unique_partitions = np.unique(labels)
-        print("Preparing data: slicing into partitions and batches...")
-        x_train = df.copy()
-        df = pd.concat([df, partition_labels], axis=1)
-        df.rename(columns={df.columns[-1]: "class"})
+        vprint(verbose, "Preparing data: slicing into partitions and batches...")
+        x_train_copy = x_train.copy()
+        x_train_copy = pd.concat([x_train_copy, partition_labels], axis=1)
+        x_train_copy.rename(columns={x_train_copy.columns[-1]: "class"})
 
-        # TODO maybe generate noise data here and append to the dataset
-        alarm_labels = [0 for _ in range(x_train.shape[0])] + [1 for _ in range(x_train.shape[0])]
-        x_train_noise = pd.DataFrame(np.random.normal(0.5, 1, size=x_train.shape), columns=x_train.columns)
-        x_train = pd.concat([x_train, x_train_noise], axis=0).reset_index(drop=True)
+        N_noise_samples = x_train.shape[0] if N_noise_samples is None else N_noise_samples
+        x_train_noise = pd.DataFrame(np.random.normal(loc=0.5, scale=1,
+                                                      size=(N_noise_samples, x_train.shape[1])),
+                                     columns=x_train.columns)
         x_train_noise["class"] = -1
-        df_with_noise_and_labels = pd.concat([df, x_train_noise]).reset_index(drop=True)
-        gating_label_vectors = pd.get_dummies(df_with_noise_and_labels["class"]).values
+        x_train_with_noise_and_labels = pd.concat([x_train_copy, x_train_noise]).reset_index(drop=True)
+        x_train_with_noise_and_labels = shuffle(x_train_with_noise_and_labels)
+        gating_label_vectors = pd.get_dummies(x_train_with_noise_and_labels["class"]).values
+        alarm_gating_train_dataset = tf.data.Dataset.from_tensor_slices((x_train_with_noise_and_labels.drop(columns="class"),
+                                                                         gating_label_vectors))
+        alarm_gating_train_dataset = alarm_gating_train_dataset.batch(batch_size, drop_remainder=True)
 
-        alarm_gating_train_dataset = tf.data.Dataset.from_tensor_slices((x_train, (alarm_labels, gating_label_vectors)))
-        alarm_gating_train_dataset = alarm_gating_train_dataset.shuffle(buffer_size=1024).batch(batch_size,
-                                                                                                drop_remainder=True)
         autoencoder_train_dataset_dict = {}
         for partition_number, data_partition in enumerate(unique_partitions):
-            train_dataset = df[df["class"] == data_partition].drop(columns=["class"])
+            train_dataset = x_train_copy[x_train_copy["class"] == data_partition].drop(columns=["class"])
+            train_dataset = shuffle(train_dataset)
             partition_batch_size = train_dataset.shape[0] // number_of_batches
-            print(f"Partition {partition_number} batch size: {partition_batch_size}")
-            train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset).shuffle(buffer_size=1024)
+            train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
             train_dataset = train_dataset.batch(partition_batch_size, drop_remainder=True).prefetch(2)
             autoencoder_train_dataset_dict[f"class_{data_partition}"] = train_dataset
+            vprint(verbose, f"Partition {partition_number} batch size: {partition_batch_size}, "
+                            f"number of batches: {number_of_batches}")
 
         # NOTE: using one optimizer and loss function for all decoders for now. Could try one for each...
         ae_optimizer = tf.keras.optimizers.RMSprop()
@@ -172,14 +182,16 @@ class ARGUE:
         ae_metric = tf.metrics.MeanAbsoluteError()
 
         # first train encoder and decoders
-        print("=== Phase 1: training autoencoder pairs ===")
+        vprint(verbose, "\n=== Phase 1: training autoencoder pairs ===")
         for epoch in range(epochs):
-            print(f"\nStart of epoch {epoch}")
+            vprint(verbose, f"\n>> Epoch {epoch}")
             for name, model in self.autoencoder_dict.items():
-                print(f"== Model: {name}, training steps:")
+                epoch_loss = []
+                epoch_metric = []
+                vprint(verbose > 1, f"== Model: {name}, training steps:")
                 # for each model, iterate over all its batches from its own dataset and update weights
-                # TODO in the future, if this doesnt work well, training should alternate between models, 1 batch
-                #  for each at a time
+                # TODO in the future, if this doesnt work well, training should alternate between models,
+                #  1 batch for each at a time
 
                 partition = name[-1]
                 for step, x_batch_train in enumerate(autoencoder_train_dataset_dict[f"class_{partition}"]):
@@ -190,13 +202,18 @@ class ARGUE:
                     gradients = tape.gradient(loss_value, model.trainable_weights)
                     ae_optimizer.apply_gradients(zip(gradients, model.trainable_weights))
                     ae_metric.update_state(x_batch_train, predictions)
+                    error_metric = ae_metric.result()
+                    epoch_metric.append(error_metric)
+                    ae_metric.reset_states()
 
-                    if step % 10 == 0:
-                        error_metric = ae_metric.result()
-                        print(f"Batch {step} training loss: {float(loss_value):.4f}, "
+                    loss_value = float(loss_value)
+                    epoch_loss.append(loss_value)
+                    if step % 1 == 0 and verbose > 1:
+                        print(f"Batch {step} training loss: {loss_value:.4f}, "
                               f"MAE: {float(error_metric):.4f}")
 
-                    ae_metric.reset_states()
+                vprint(verbose, f"Model {name[-1]} epoch loss: {np.mean(epoch_loss):.4f}, "
+                                f"MAE: {np.mean(epoch_metric):.4f}")
 
         # set encoder and decoders to be non-trainable
         # TODO wrap in function
@@ -204,40 +221,94 @@ class ARGUE:
         for name, network_object in self.decoder_dict.items():
             network_object.keras_model.trainable = False
 
+        # train alarm network
         alarm_optimizer = tf.keras.optimizers.RMSprop()
-        alarm_loss = tf.losses.MeanSquaredError()
+        alarm_loss = tf.losses.BinaryCrossentropy()
         alarm_metric = tf.metrics.BinaryAccuracy()
 
+        vprint(verbose, "\n=== Phase 2: training alarm network ===")
+        for epoch in range(epochs):
+            vprint(verbose, f"\n>> Epoch {epoch}")
+            epoch_loss = []
+            epoch_metric = []
+            for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
+                vprint(step % 20 == 0 and verbose > 1, f"\nStep: {step}")
+                for name, model in self.input_to_alarm_dict.items():
+                    with tf.GradientTape(persistent=True) as tape:
+                        predicted_alarm = model(x_batch_train, training=True)
+                        true_alarm = (1 - true_gating.numpy())[:, int(name[-1])].reshape((-1, 1))
+                        loss_value = alarm_loss(true_alarm, predicted_alarm)
+                        vprint(step % 20 == 0 and verbose > 1,
+                               f"Alarm model {name} batch loss: {float(loss_value)}")
+
+                    gradients = tape.gradient(loss_value, self.alarm.keras_model.trainable_weights)
+                    alarm_optimizer.apply_gradients(zip(gradients, self.alarm.keras_model.trainable_weights))
+                    alarm_metric.update_state(true_alarm, predicted_alarm)
+                    error_metric = alarm_metric.result()
+                    epoch_metric.append(error_metric)
+                    alarm_metric.reset_states()
+                epoch_loss.append(float(loss_value))
+
+                if step % 40 == 0 and verbose > 1:
+                    print(f"Batch {step} training loss: {float(loss_value):.4f}, ")
+
+            vprint(verbose, f"Alarm epoch loss: {np.mean(epoch_loss):.4f}, "
+                            f"Binary accuracy: {np.mean(epoch_metric):.4f}")
+
+        # set alarm to be non-trainable
+        # TODO wrap in function
+        self.alarm.keras_model.trainable = False
+
+        # train gating network
         gating_optimizer = tf.keras.optimizers.RMSprop()
         gating_loss = tf.losses.CategoricalCrossentropy()
         gating_metric = tf.metrics.CategoricalAccuracy()
 
-        # then train alarm and gating
-        print("\n=== Phase 2: training alarm and gating networks ===")
-        # combined_alarm_loss = tf.zeros_like(0, dtype="float32")
+        # TODO this will be faster if done inside the same training loop as the alarm model,
+        #  but kept separate for easier implementation and getting the details right
+        vprint(verbose, "\n=== Phase 3: training gating network ===")
         for epoch in range(epochs):
-            print(f"\nStart of epoch {epoch}")
-            for step, (x_batch_train, (true_alarm, true_gating)) in enumerate(alarm_gating_train_dataset):
-                alarm_loss_list = []
-                with tf.GradientTape(persistent=True) as tape:
-                    for name, model in self.input_to_alarm_dict.items():
-                        predicted_alarm = model(x_batch_train, training=True)
-                        true_alarm = (1-true_gating.numpy())[:, int(name[-1])].reshape((-1,1))
-                        loss_value = alarm_loss(true_alarm, predicted_alarm)
-                        alarm_loss_list.append(loss_value)
-                        loss_value += loss_value
+            vprint(verbose, f"\n>> Epoch {epoch}")
+            for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
+                epoch_loss = []
+                epoch_metric = []
+                with tf.GradientTape() as tape:
+                    model = self.input_to_gating
+                    predicted_gating = model(x_batch_train, training=True)
+                    loss_value = gating_loss(true_gating, predicted_gating)
+                    epoch_loss.append(float(loss_value))
+                    loss_value += loss_value
 
+                gradients = tape.gradient(loss_value, self.gating.keras_model.trainable_weights)
+                gating_optimizer.apply_gradients(zip(gradients, self.gating.keras_model.trainable_weights))
+                gating_metric.update_state(true_gating, predicted_gating)
+                error_metric = gating_metric.result()
+                epoch_metric.append(error_metric)
+                gating_metric.reset_states()
 
-                gradients = tape.gradient(loss_value, self.alarm.keras_model.trainable_weights)
-                alarm_optimizer.apply_gradients(zip(gradients, self.alarm.keras_model.trainable_weights))
-                alarm_metric.update_state(true_alarm, predicted_alarm)
+                if step % 40 == 0 and verbose > 1:
+                    print(f"Batch {step} training loss: {float(loss_value):.4f}, ")
 
-                if step % 40 == 0:
-                    error_metric = alarm_metric.result()
-                    print(f"Batch {step} training loss: {float(np.sum(alarm_loss_list)):.4f}, "
-                          f"Binary accuracy: {float(error_metric):.4f}")
+            vprint(verbose, f"Gating epoch loss: {np.mean(epoch_loss):.4f}, "
+                            f"Categorical accuracy: {np.mean(epoch_metric):.4f}")
 
-                alarm_metric.reset_states()
+        vprint(verbose, "\nModel fitted!")
+
+    def predict(self, x):
+        gating_vector = self.input_to_gating.predict(x).reshape((-1, self.number_of_decoders + 1))
+        alarm_vector = []
+
+        # get alarm scores from each decoder model and some reshaping afterwards
+        for name, model in self.input_to_alarm_dict.items():
+            alarm_vector.append(model.predict(x))
+        alarm_vector = np.array(alarm_vector).reshape((self.number_of_decoders, -1))
+
+        # stack the virtual decision vector on top of the model alarm verdicts vector
+        alarm_vector = np.vstack([np.ones((1, x.shape[0])), alarm_vector]).transpose()
+
+        # compute final weighted average anomaly score
+        predictions = np.multiply(gating_vector, alarm_vector).sum(axis=1)
+        return predictions
 
 
 @dataclass
@@ -249,26 +320,42 @@ class SubmodelContainer:
 
 if __name__ == "__main__":
     # make some data
-    N = 1000
-    N_2 = 1500
-    N_3 = 2000
-    df = pd.concat([pd.DataFrame({"x1": np.sin(np.linspace(0, 10, N) + np.random.normal(0, 0.1, N)),
-                                  "x2": np.cos(np.linspace(0, 10, N) + np.random.normal(0, 0.1, N)),
-                                  "x3": np.cos(3.14 + np.linspace(0, 10, N) + np.random.normal(0, 0.1, N)),
-                                  "class": 1
-                                  }),
-                    pd.DataFrame({"x1": 8 + np.sin(np.linspace(0, 10, N_2) + np.random.normal(0, 0.1, N_2)),
-                                  "x2": 8 + np.cos(np.linspace(0, 10, N_2) + np.random.normal(0, 0.1, N_2)),
-                                  "x3": 8 + np.cos(3.14 + np.linspace(0, 10, N_2) + np.random.normal(0, 0.1, N_2)),
-                                  "class": 2
-                                  }),
-                    pd.DataFrame({"x1": 2 + 2 * np.linspace(0, 10, N_3) + np.random.normal(0, 0.1, N_3),
-                                  "x2": 2 - 3 * np.linspace(0, 10, N_3) + np.random.normal(0, 0.1, N_3),
-                                  "x3": 2 * np.linspace(0, 10, N_3) + np.random.normal(0, 0.1, N_3),
-                                  "class": 3
-                                  })
-                    ]
-                   ).reset_index(drop=True)
+    N_1 = 5000
+    N_2 = 5000
+    N_3 = 5000
+    df = pd.concat([
+        pd.DataFrame({"x1": 4 + np.sin(np.linspace(0, 10, N_1) + np.random.normal(0, 0.1, N_1)),
+                      "x2": 4 + np.cos(np.linspace(0, 10, N_1) + np.random.normal(0, 0.1, N_1)),
+                      "x3": 4 + np.cos(3.14 + np.linspace(0, 10, N_1) + np.random.normal(0, 0.1, N_1)),
+                      "class": 1
+                      }),
+        pd.DataFrame({"x1": 500 + np.sin(np.linspace(0, 10, N_2) + np.random.normal(0, 0.1, N_2)),
+                      "x2": 500 + np.cos(np.linspace(0, 10, N_2) + np.random.normal(0, 0.1, N_2)),
+                      "x3": 500 + np.cos(3.14 + np.linspace(0, 10, N_2) + np.random.normal(0, 0.1, N_2)),
+                      "class": 2
+                      }),
+        pd.DataFrame({"x1": -100 - 2 * np.linspace(0, 10, N_3) + np.random.normal(0, 0.1, N_3),
+                      "x2": -100 - 3 * np.linspace(0, 10, N_3) + np.random.normal(0, 0.1, N_3),
+                      "x3": -100 - 1 * np.linspace(0, 10, N_3) + np.random.normal(0, 0.1, N_3),
+                      "class": 3
+                      })
+    ]
+    ).reset_index(drop=True)
+    # df.plot(subplots=True)
+    # plt.show()
+
+    df[["x1", "x2", "x3"]] = StandardScaler().fit_transform(df[["x1", "x2", "x3"]])
 
     model = ARGUE(number_of_decoders=3).build_model()
-    model.fit(df.drop(columns=["class"]), df["class"], epochs=10, number_of_batches=8, batch_size=128)
+    model.fit(df.drop(columns=["class"]), df["class"], epochs=1, number_of_batches=8, batch_size=256,
+              verbose=1, N_noise_samples=N_1)
+
+    indices = [0, N_2 - 1, N_2 + N_3 - 1]
+    x_new = df[["x1", "x2", "x3"]].iloc[indices]
+    anomaly = pd.DataFrame({"x1": [100000 for _ in range(6)],
+                            "x2": [100000 for _ in range(6)],
+                            "x3": [100000 for _ in range(6)]})
+    x_new = pd.concat([x_new, anomaly]).reset_index(drop=True)
+    # print(x_new)
+    preds = model.predict(x_new)
+    print(preds)
