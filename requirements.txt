@@ -11,6 +11,7 @@ tensorflow
 pwlf
 sqlalchemy
 jupyterlab
+tqdm
 # Databases
 # ------------------------------------------------------------------------------
 pyodbc

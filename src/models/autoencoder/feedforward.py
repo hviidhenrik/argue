@@ -15,12 +15,6 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from src.models.autoencoder.base import AutoencoderMixin
 from src.models.base.plot_mixin import PlotsMixin, save_or_show_plot
 
-class Encoder(Model):
-    def __init__(self, hidden_layers: List[int], activation_functions="selu", **kwargs):
-        super().__init__(**kwargs)
-
-
-
 
 class FFNAutoencoder(AutoencoderMixin, PlotsMixin):
     def __init__(

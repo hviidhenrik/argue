@@ -1,19 +1,10 @@
-from typing import List, Any, Union, Tuple
-
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-import tensorflow.keras as keras
-import matplotlib.pyplot as plt
+from dataclasses import dataclass
 from pathlib import WindowsPath
-from tensorflow.keras.models import Model
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.layers import Input, Dense, Dropout
-from tensorflow.keras.optimizers import Nadam
-from pandas import DataFrame
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from src.models.autoencoder.base import AutoencoderMixin
-from src.models.base.plot_mixin import PlotsMixin, save_or_show_plot
+from typing import List, Union
+
+import tensorflow as tf
+from tensorflow.keras.layers import Dense
+
 
 def extract_activations(network: tf.keras.models.Model,
                         target_name: str,
@@ -60,3 +51,15 @@ def network_block(inputs, units_in_layers: List[int], activation="selu"):
 def vprint(verbose: Union[bool, int], str_to_print: str):
     if verbose:
         print(str_to_print)
+
+
+def load_model(path: WindowsPath):
+    # return the loaded ARGUE model
+    pass
+
+
+@dataclass
+class SubmodelContainer:
+    keras_model: tf.keras.models.Model
+    loss_function: tf.keras.losses.Loss
+    optimizer: tf.keras.optimizers.Optimizer
