@@ -1,58 +1,64 @@
-import numpy as np
-import pandas as pd
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
+from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from src.models.ARGUE.models import ARGUE
 from src.models.ARGUE.data_generation import *
 
 if __name__ == "__main__":
     # make some data
     N = 10000
-    df = pd.concat([pd.DataFrame(np.random.normal(loc=[100, 3, 10],
-                                                  scale=[15, 1, 1],
-                                                  size=(N, 3)), ),
-                    pd.DataFrame(np.random.exponential(scale=[10, 3, 10],
-                                                       size=(N, 3)), ),
-                    pd.DataFrame(np.random.uniform(low=[0, 0, 0],
-                                                   high=[4, 3, 4],
-                                                   size=(N, 3)), )
-                    ]).reset_index(drop=True)
+    noise_sds = [10, 30, 6]
+    df = make_custom_test_data(N, N, N, noise_sd=noise_sds)
     df.columns = ["x1", "x2", "x3"]
-    df["class"] = make_class_labels(3, N)
-    # df.plot(subplots=True)
-    # plt.show()
+    df["class"] = make_class_labels(classes=3, N=N)
 
     # scale it
     scaler = StandardScaler()
     df[["x1", "x2", "x3"]] = scaler.fit_transform(df[["x1", "x2", "x3"]])
+    df.plot(subplots=True)
+    plt.show()
 
-    # call and fit model
-    model = ARGUE(input_dim=3,
-                  number_of_decoders=3,
-                  latent_dim=6)
-    model.build_model(encoder_hidden_layers=[64, 48, 32, 16, 8],
-                      decoders_hidden_layers=[8, 16, 32, 48, 64],
-                      alarm_hidden_layers=[64, 48, 32, 16, 8],
-                      gating_hidden_layers=[64, 48, 32, 16, 8],
-                      all_activations="tanh")
-    model.fit(df.drop(columns=["class"]), df["class"], epochs=30, number_of_batches=32, batch_size=256,
-              verbose=1, n_noise_samples=N, optimizer="adam")
-
-    model.save()
+    # USE_SAVED_MODEL = True
+    USE_SAVED_MODEL = False
+    if USE_SAVED_MODEL:
+        model = ARGUE().load()
+    else:
+        # call and fit model
+        model = ARGUE(input_dim=3,
+                      number_of_decoders=3,
+                      latent_dim=5)
+        model.build_model(encoder_hidden_layers=[10, 8, 7],
+                          decoders_hidden_layers=[7, 8, 10],
+                          alarm_hidden_layers=[15, 12, 10, 5, 3],
+                          gating_hidden_layers=[15, 12, 10, 5],
+                          all_activations="tanh")
+        model.fit(df.drop(columns=["class"]), df["class"], epochs=10, number_of_batches=32, batch_size=256,
+                  verbose=1, n_noise_samples=N, optimizer="adam", validation_split=0.2)
+        model.save()
 
     # make new data which contains some normal and anomalous samples
-    healthy_indices = [0, N - 1, 2 * N - 1]
-    normal_samples = df[["x1", "x2", "x3"]].iloc[healthy_indices]
-    healthy_samples = pd.DataFrame(np.random.normal(loc=[100, 3, 10],
-                                                    scale=[15, 1, 1],
-                                                    size=(10, 3)),
-                                   columns=["x1", "x2", "x3"])
-    healthy_samples = pd.DataFrame(scaler.transform(healthy_samples), columns=healthy_samples.columns)
+    healthy_samples = make_custom_test_data(5, 5, 5, noise_sd=noise_sds)
+    healthy_labels = make_class_labels(3, 5)
+    healthy_samples.plot(subplots=True)
+    plt.show()
+
+    anomalies = pd.DataFrame(np.array([
+        [50, 50, 50],
+        [200, 200, 200],
+        [-30, -30, -30],
+    ]).reshape(-1, 3), columns=healthy_samples.columns)
+    anomaly_labels = [-1 for _ in range(anomalies.shape[0])]
+    test_samples = pd.concat([healthy_samples, anomalies]).reset_index(drop=True)
+    test_samples = pd.DataFrame(scaler.transform(test_samples), columns=test_samples.columns)
+
+    model.predict_plot_reconstructions(test_samples)
+    plt.show()
 
     # predict the mixed data
-    test_samples = pd.concat([normal_samples, healthy_samples]).reset_index(drop=True)
-    print("Alarm probabilities: ", model.predict_alarm_probabilities(test_samples))
-    print("\nGating weights: ", model.predict_gating_weights(test_samples))
-    print("\nFinal anomaly probabilities: ", model.predict(test_samples))
-
-    # model_loaded = ARGUE().load()
+    print("Alarm probabilities:\n ", model.predict_alarm_probabilities(test_samples))
+    print("\nGating weights:\n ", model.predict_gating_weights(test_samples))
+    print(f"\nFinal anomaly probabilities:\n {np.round(model.predict(test_samples), 4)}")
+    model.predict_plot_anomalies(test_samples, true_classes=healthy_labels + anomaly_labels)
+    plt.show()
