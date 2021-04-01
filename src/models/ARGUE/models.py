@@ -88,6 +88,28 @@ class ARGUE:
         if submodel == "alarm":
             self.alarm.keras_model.trainable = False
 
+    @staticmethod
+    def _autoencoder_step(x, model, loss, optimizer, metric, training: bool):
+        with tf.GradientTape() as tape:
+            predictions = model(x, training=training)
+            loss_value = loss(x, predictions)
+        if training:
+            gradients = tape.gradient(loss_value, model.trainable_weights)
+            optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+        metric.update_state(x, predictions)
+        return loss_value
+
+    @staticmethod
+    def _init_loss_metric_optimizer(loss: tf.keras.losses.Loss,
+                                    metric: tf.keras.metrics.Metric,
+                                    optimizer: Union[str, tf.keras.optimizers.Optimizer]):
+        train_loss = loss()
+        val_loss = loss()
+        train_metric = metric()
+        val_metric = metric()
+        optimizer = tf.keras.optimizers.get(optimizer)
+        return train_loss, val_loss, train_metric, val_metric, optimizer
+
     def build_model(self,
                     encoder_hidden_layers: List[int] = [10, 8, 5],
                     decoders_hidden_layers: List[int] = [5, 8, 10],
@@ -180,14 +202,13 @@ class ARGUE:
         gating_label_vectors = pd.get_dummies(x_with_noise_and_labels["class"]).values
 
         # split into train and validation sets
-        x_train, x_val = train_test_split(x_with_noise_and_labels, test_size=validation_split)
-        gating_train_labels = gating_label_vectors[x_train.index.values]
-        gating_val_labels = gating_label_vectors[x_val.index.values]
+        x_train, x_val, gating_train_labels, gating_val_labels = train_test_split(x_with_noise_and_labels,
+                                                                                  gating_label_vectors,
+                                                                                  test_size=validation_split)
 
         # make training set for the alarm and gating networks
         alarm_gating_train_dataset = tf.data.Dataset.from_tensor_slices(
-            (x_train.drop(columns="class"),
-             gating_train_labels))
+            (x_train.drop(columns="class"), gating_train_labels))
         alarm_gating_train_dataset = alarm_gating_train_dataset.shuffle(1024).batch(batch_size,
                                                                                     drop_remainder=True)
         alarm_gating_val_dataset = tf.data.Dataset.from_tensor_slices(
@@ -226,6 +247,7 @@ class ARGUE:
         ae_train_metric = tf.metrics.MeanAbsoluteError()
         ae_val_loss = tf.losses.MeanSquaredError()
         ae_val_metric = tf.metrics.MeanAbsoluteError()
+
         # train loop
         for epoch in range(epochs):
             vprint(verbose, f"\n>> Epoch {epoch} - autoencoder")
@@ -253,6 +275,7 @@ class ARGUE:
 
                     gradients = tape.gradient(train_loss_value, model.trainable_weights)
                     ae_optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+
                     ae_train_metric.update_state(x_batch_train, predictions)
                     error_metric = ae_train_metric.result()
                     epoch_train_metric.append(error_metric)
@@ -267,7 +290,7 @@ class ARGUE:
                 # end of current submodel's epoch validation loop
                 for x_batch_val in autoencoder_val_dataset_dict[f"class_{partition}"]:
                     val_predictions = model(x_batch_val, training=False)
-                    val_loss_value = float(ae_val_loss(x_batch_val, predictions))
+                    val_loss_value = float(ae_val_loss(x_batch_val, val_predictions))
                     epoch_val_loss.append(val_loss_value)
                     ae_val_metric.update_state(x_batch_val, val_predictions)
 
@@ -277,8 +300,8 @@ class ARGUE:
 
                 vprint(verbose > 1, f"Model {name[-1]} loss [train: {np.mean(epoch_train_loss):.4f}, "
                                     f"val: {np.mean(epoch_val_loss):.4f}] "
-                                    f"| MAE train: {np.mean(epoch_train_metric):.4f}, "
-                                    f"val: {np.mean(epoch_val_metric):.4f}")
+                                    f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
+                                    f"val: {np.mean(epoch_val_metric):.4f}]")
                 total_train_loss.append(np.mean(epoch_train_loss))
                 total_val_loss.append(np.mean(epoch_val_loss))
                 total_train_metric.append(np.mean(epoch_train_metric))
@@ -347,6 +370,7 @@ class ARGUE:
 
         # train gating network
         vprint(verbose, "\n\n=== Phase 3: training gating network ===")
+
         gating_optimizer = tf.keras.optimizers.get(optimizer)
         gating_train_loss = tf.losses.CategoricalCrossentropy()
         gating_train_metric = tf.metrics.CategoricalAccuracy()
@@ -374,7 +398,7 @@ class ARGUE:
                 epoch_train_metric.append(train_error_metric)
                 gating_train_metric.reset_states()
 
-                if step % 40 == 0 and verbose > 1:
+                if step % 10 == 0 and verbose > 1:
                     print(f"Batch {step} training loss: {float(train_loss_value):.4f}, ")
 
             for (x_batch_val, true_gating) in alarm_gating_val_dataset:
@@ -504,7 +528,7 @@ class ARGUE:
             for name, model in model_dict.items():
                 model.save(path / name)
 
-        vprint(self.verbose, "Saving model...\n")
+        vprint(self.verbose, "\nSaving model...\n")
         model_name = model_name if model_name else "argue"
         path = get_model_archive_path() / model_name if not path else path
 
@@ -528,7 +552,7 @@ class ARGUE:
         vprint(self.verbose, f"... Model saved succesfully in {path}")
 
     def load(self, path: Union[WindowsPath, str] = None, model_name: str = None):
-        print("\nLoading model...")
+        print("\nLoading model...\n")
         model_name = model_name if model_name else "argue"
         path = get_model_archive_path() / model_name if not path else path
 
