@@ -1,6 +1,6 @@
 import os
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
+
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 from src.models.ARGUE.models import ARGUE
@@ -39,8 +39,7 @@ if __name__ == "__main__":
                           gating_hidden_layers=[15, 12, 10],
                           all_activations="tanh")
         model.fit(df.drop(columns=["class"]), df["class"], epochs=7, number_of_batches=32, batch_size=256,
-                  verbose=1, n_noise_samples=N, optimizer="adam", validation_split=0.2,
-                  noise_mean=50, noise_sd=0.5)
+                  n_noise_samples=N, optimizer="adam", validation_split=0.2, noise_mean=50, noise_sd=0.5)
         # model.save()
 
     # make new data which contains some normal and anomalous samples

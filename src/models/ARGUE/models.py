@@ -31,12 +31,17 @@ plt.style.use('seaborn')
 #  - make build_model able to take Network class to specify submodels more flexibly
 #  - class ARGUEPrinter that takes an ARGUE obj and prints nicely readable output from it
 #  - more realistic anomalies for the noise counter examples
+#  Experimental:
+#  - try separate optimizers and loss for the autoencoder pairs
+#  - make noise distribution only have values "outside" the scaled features by e.g. making large gaussian and
+#    then remove values inside the 99% limits or similar
 
 class ARGUE:
     def __init__(self,
                  input_dim: int = 3,
                  number_of_decoders: int = 2,
                  latent_dim: int = 2,
+                 verbose: int = 1,
                  ):
         self.input_dim = input_dim
         self.number_of_decoders = number_of_decoders
@@ -50,8 +55,8 @@ class ARGUE:
         self.decoder_activation_dim = None
         self.input_to_alarm_dict = {}
         self.input_to_gating = None
-        self.verbose = None
         self.history = None
+        self.verbose = verbose
 
     def _connect_autoencoder_pair(self, name):
         decoder = self.decoder_dict[name]
@@ -160,6 +165,14 @@ class ARGUE:
             self.input_to_alarm_dict[f"input_to_alarm_{i}"] = self._connect_alarm_pair(decoder_name)
 
         self.input_to_gating = self._connect_gating()
+
+        vprint(self.verbose, f"\nARGUE networks built succesfully - properties: \n"
+                             f"  > Input dimension: {self.input_dim}\n"
+                             f"  > Encoder activations: {self.encoder_activation_dim}\n"
+                             f"  > Decoder activations: {self.decoder_activation_dim}\n"
+                             f"  > Latent dimension: {self.latent_dim}\n"
+                             f"  > Number of decoders: {len(self.autoencoder_dict)}\n")
+
         return self
 
     def fit(self,
@@ -172,14 +185,11 @@ class ARGUE:
             n_noise_samples: Optional[int] = None,
             noise_mean: float = 0.5,
             noise_sd: float = 1.0,
-            verbose: int = 1,
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam"):
-
-        self.verbose = verbose
 
         # form initial training data making sure labels and classes are right
         unique_partitions = np.unique(list(partition_labels))
-        vprint(verbose, "Preparing data: slicing into partitions and batches...")
+        vprint(self.verbose, "Preparing data: slicing into partitions and batches...")
         x_copy = x.copy()
         x_copy = pd.concat([x_copy, partition_labels], axis=1)
         x_copy.rename(columns={x_copy.columns[-1]: "class"})
@@ -232,12 +242,12 @@ class ARGUE:
             autoencoder_train_dataset_dict[f"class_{data_partition}"] = train_dataset
             autoencoder_val_dataset_dict[f"class_{data_partition}"] = val_dataset
 
-            vprint(verbose, f"Autoencoder data partition {partition_number} batch size: "
+            vprint(self.verbose, f"Autoencoder data partition {partition_number} batch size: "
                             f"{partition_batch_size}, number of batches (train set): {number_of_batches}")
 
         # NOTE: using one optimizer and loss function for all decoders for now. Should try one for each..
         # first train encoder and decoders
-        vprint(verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
+        vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
         ae_optimizer = tf.keras.optimizers.get(optimizer)
         ae_train_loss = tf.losses.MeanSquaredError()
         ae_train_metric = tf.metrics.MeanAbsoluteError()
@@ -246,7 +256,7 @@ class ARGUE:
 
         # train loop
         for epoch in range(epochs):
-            vprint(verbose, f"\n>> Epoch {epoch} - autoencoder")
+            vprint(self.verbose, f"\n>> Epoch {epoch} - autoencoder")
             total_train_loss = []
             total_train_metric = []
             total_val_loss = []
@@ -257,7 +267,7 @@ class ARGUE:
                 epoch_train_metric = []
                 epoch_val_loss = []
                 epoch_val_metric = []
-                vprint(verbose > 1, f"== Model: {name}, training steps:")
+                vprint(self.verbose > 1, f"== Model: {name}, training steps:")
 
                 # train loop:
                 # for each model, iterate over all its batches from its own dataset to update weights
@@ -279,7 +289,7 @@ class ARGUE:
 
                     train_loss_value = float(train_loss_value)
                     epoch_train_loss.append(train_loss_value)
-                    if step % 10 == 0 and verbose > 1:
+                    if step % 10 == 0 and self.verbose > 1:
                         print(f"Batch {step} training loss: {train_loss_value:.4f}, "
                               f"MAE: {float(error_metric):.4f}")
 
@@ -294,7 +304,7 @@ class ARGUE:
                 ae_val_metric.reset_states()
                 epoch_val_metric.append(val_metric)
 
-                vprint(verbose > 1, f"Model {name[-1]} loss [train: {np.mean(epoch_train_loss):.4f}, "
+                vprint(self.verbose > 1, f"Model {name[-1]} loss [train: {np.mean(epoch_train_loss):.4f}, "
                                     f"val: {np.mean(epoch_val_loss):.4f}] "
                                     f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
                                     f"val: {np.mean(epoch_val_metric):.4f}]")
@@ -302,14 +312,14 @@ class ARGUE:
                 total_val_loss.append(np.mean(epoch_val_loss))
                 total_train_metric.append(np.mean(epoch_train_metric))
                 total_val_metric.append(np.mean(epoch_val_metric))
-            vprint(verbose, f"--- Average epoch loss [train: {np.mean(total_train_loss):.4f}, "
+            vprint(self.verbose, f"--- Average epoch loss [train: {np.mean(total_train_loss):.4f}, "
                             f"val: {np.mean(total_val_loss):.4f}] "
                             f"| Average model MAE [train: {np.mean(total_train_metric):.4f}, "
                             f"val: {np.mean(total_val_metric):.4f}]")
         self._make_non_trainable("autoencoders")
 
         # train alarm network
-        vprint(verbose, "\n\n=== Phase 2: training alarm network ===")
+        vprint(self.verbose, "\n\n=== Phase 2: training alarm network ===")
         alarm_optimizer = tf.keras.optimizers.get(optimizer)
         alarm_train_loss = tf.losses.BinaryCrossentropy()
         alarm_val_loss = tf.losses.BinaryCrossentropy()
@@ -318,7 +328,7 @@ class ARGUE:
 
         # training loop
         for epoch in range(epochs):
-            vprint(verbose, f"\n>> Epoch {epoch} - alarm")
+            vprint(self.verbose, f"\n>> Epoch {epoch} - alarm")
             epoch_train_loss = []
             epoch_train_metric = []
             epoch_val_loss = []
@@ -326,13 +336,13 @@ class ARGUE:
 
             # weight update loop
             for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
-                vprint(step % 20 == 0 and verbose > 1, f"\nStep: {step}")
+                vprint(step % 20 == 0 and self.verbose > 1, f"\nStep: {step}")
                 for name, model in self.input_to_alarm_dict.items():
                     with tf.GradientTape(persistent=True) as tape:
                         predicted_alarm = model(x_batch_train, training=True)
                         true_train_alarm = (1 - true_gating.numpy())[:, int(name[-1])].reshape((-1, 1))
                         train_loss_value = alarm_train_loss(true_train_alarm, predicted_alarm)
-                        vprint(step % 20 == 0 and verbose > 1,
+                        vprint(step % 20 == 0 and self.verbose > 1,
                                f"Alarm model {name} batch loss: {float(train_loss_value)}")
 
                     gradients = tape.gradient(train_loss_value, self.alarm.keras_model.trainable_weights)
@@ -343,7 +353,7 @@ class ARGUE:
                     alarm_train_metric.reset_states()
                     epoch_train_loss.append(float(train_loss_value))
 
-                    if step % 40 == 0 and verbose > 1:
+                    if step % 40 == 0 and self.verbose > 1:
                         print(f"Batch {step} training loss: {float(train_loss_value):.4f}, ")
 
             # end of epoch validation loop
@@ -357,7 +367,7 @@ class ARGUE:
                     val_error_metric = alarm_val_metric.result()
                     epoch_val_metric.append(val_error_metric)
 
-            vprint(verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
+            vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
                             f"val: {np.mean(epoch_val_loss):.4f}] "
                             f"| Accuracy [train: {np.mean(epoch_train_metric):.4f}, "
                             f"val: {np.mean(epoch_val_metric):.4f}]")
@@ -365,7 +375,7 @@ class ARGUE:
         self._make_non_trainable("alarm")
 
         # train gating network
-        vprint(verbose, "\n\n=== Phase 3: training gating network ===")
+        vprint(self.verbose, "\n\n=== Phase 3: training gating network ===")
 
         gating_optimizer = tf.keras.optimizers.get(optimizer)
         gating_train_loss = tf.losses.CategoricalCrossentropy()
@@ -375,7 +385,7 @@ class ARGUE:
         # TODO this will be faster if done inside the same training loop as the alarm model,
         #  but kept separate for easier implementation and getting the details right
         for epoch in range(epochs):
-            vprint(verbose, f"\n>> Epoch {epoch} - gating")
+            vprint(self.verbose, f"\n>> Epoch {epoch} - gating")
             epoch_train_loss = []
             epoch_train_metric = []
             epoch_val_loss = []
@@ -394,7 +404,7 @@ class ARGUE:
                 epoch_train_metric.append(train_error_metric)
                 gating_train_metric.reset_states()
 
-                if step % 10 == 0 and verbose > 1:
+                if step % 10 == 0 and self.verbose > 1:
                     print(f"Batch {step} training loss: {float(train_loss_value):.4f}, ")
 
             for (x_batch_val, true_gating) in alarm_gating_val_dataset:
@@ -407,14 +417,14 @@ class ARGUE:
                 epoch_val_metric.append(val_error_metric)
                 gating_val_metric.reset_states()
 
-            vprint(verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
+            vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
                             f"val: {np.mean(epoch_val_loss):.4f}] "
                             f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
                             f"val: {np.mean(epoch_val_metric):.4f}]")
 
-        vprint(verbose, "\n----------- Model fitted!\n\n")
+        vprint(self.verbose, "\n----------- Model fitted!\n\n")
 
-    def predict(self, x):
+    def predict(self, x: DataFrame):
         gating_vector = self.predict_gating_weights(x)
         alarm_vector = self.predict_alarm_probabilities(x).transpose()
 
@@ -428,7 +438,7 @@ class ARGUE:
     def predict_gating_weights(self, x):
         return self.input_to_gating.predict(x).reshape((-1, self.number_of_decoders + 1))
 
-    def predict_alarm_probabilities(self, x):
+    def predict_alarm_probabilities(self, x: DataFrame):
         alarm_vector = [model.predict(x) for _, model in self.input_to_alarm_dict.items()]
         return np.array(alarm_vector).reshape((self.number_of_decoders, -1)).transpose()
 
@@ -436,8 +446,11 @@ class ARGUE:
                                x,
                                index: Optional[Collection] = None,
                                true_classes: Optional[List[int]] = None,
+                               moving_average_window: Optional[int] = 40,
                                **kwargs):
         df_preds = pd.DataFrame(self.predict(x), index, columns=["Anomaly probability"])
+        if moving_average_window is not None:
+            df_preds["Moving average"] = df_preds.rolling(window=moving_average_window).mean()
         if true_classes:
             df_preds["class"] = true_classes
         fig = df_preds.plot(subplots=True, **kwargs)
@@ -560,6 +573,7 @@ class ARGUE:
             vars(self)[name] = attribute
 
         # an untrained model needs to be built before we can start loading it
+        self.verbose = False
         self.build_model()
 
         # iterate over all the different item types to be loaded into the untrained model
@@ -577,6 +591,6 @@ class ARGUE:
                             vars(self)[name][item_name] = tf.keras.models.load_model(path / item_name, compile=False)
                 pbar.update(1)
 
-        vprint(self.verbose, "... Model loaded and ready!")
+        print("... Model loaded and ready!")
 
         return self

@@ -56,7 +56,7 @@ def make_and_save_debugging_dataset(
 
 
 def get_dataset_purpose_as_str(debugging: bool = None) -> str:
-    return "debugging" if debugging else "real"
+    return "small" if debugging else "large"
 
 
 def is_dataset_for_debugging(purpose: str = None) -> bool:

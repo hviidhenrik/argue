@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import WindowsPath
+import pandas as pd
 from typing import List, Union
 
 import tensorflow as tf
@@ -53,13 +54,12 @@ def vprint(verbose: Union[bool, int], str_to_print: str):
         print(str_to_print)
 
 
-def load_model(path: WindowsPath):
-    # return the loaded ARGUE model
-    pass
+def partition_in_quantiles(x, column: str, q: List[float] = None):
+    if q is None:
+        q = [0, 0.25, 0.5, 0.75, 1.]
+    bins = pd.qcut(x[column], q, labels=False)
+    x_out = x.copy()
+    x_out["class"] = bins + 1  # add one since the classes to ARGUE must start in 1
+    return x_out
 
 
-@dataclass
-class SubmodelContainer:
-    keras_model: tf.keras.models.Model
-    loss_function: tf.keras.losses.Loss
-    optimizer: tf.keras.optimizers.Optimizer
