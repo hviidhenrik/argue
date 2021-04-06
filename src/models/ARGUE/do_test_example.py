@@ -15,6 +15,9 @@ if __name__ == "__main__":
     df.columns = ["x1", "x2", "x3"]
     df["class"] = make_class_labels(classes=3, N=N)
 
+    import tensorflow as tf
+    foo = tf.keras.optimizers.Adam()
+
     # scale it
     scaler = StandardScaler()
     df[["x1", "x2", "x3"]] = scaler.fit_transform(df[["x1", "x2", "x3"]])
@@ -35,14 +38,14 @@ if __name__ == "__main__":
                           alarm_hidden_layers=[15, 10, 5, 3],
                           gating_hidden_layers=[15, 12, 10],
                           all_activations="tanh")
-        model.fit(df.drop(columns=["class"]), df["class"], epochs=10, number_of_batches=32, batch_size=256,
+        model.fit(df.drop(columns=["class"]), df["class"], epochs=7, number_of_batches=32, batch_size=256,
                   verbose=1, n_noise_samples=N, optimizer="adam", validation_split=0.2,
                   noise_mean=50, noise_sd=0.5)
         # model.save()
 
     # make new data which contains some normal and anomalous samples
-    healthy_samples = make_custom_test_data(100, 100, 100, noise_sd=noise_sds)
-    healthy_labels = make_class_labels(3, 100)
+    healthy_samples = make_custom_test_data(5, 5, 5, noise_sd=noise_sds)
+    healthy_labels = make_class_labels(3, 5)
     healthy_samples.plot(subplots=True)
     plt.show()
 

@@ -24,17 +24,13 @@ plt.style.use('seaborn')
 # TODO:
 #  Required:
 #  - make plotting features
-#    - learning curves
-#    - times series plots where alarm percentage is displayed
-#    - if weighted autoencoder reconstructions are implemented, make predicted vs observed plots
+#     - learning curves
 #   - a clustering method could be standard partitioning method, if no class vector is given
 #  Nice to have:
 #  - make data handling more clean (maybe make a class for handling this)
-#  - make reconstructions from decoders available using the weighted average (using the gating vector)
 #  - make build_model able to take Network class to specify submodels more flexibly
 #  - class ARGUEPrinter that takes an ARGUE obj and prints nicely readable output from it
-#  - try to make more realistic anomalies
-
+#  - more realistic anomalies for the noise counter examples
 
 class ARGUE:
     def __init__(self,
@@ -449,20 +445,21 @@ class ARGUE:
 
     def predict_reconstructions(self,
                                 x: DataFrame):
-        # get the gating weights for decoder and each data point and softmax it so the decoder weights
-        # for each data point sums to one
-        gating_vector = softmax(self.predict_gating_weights(x)[:, 1:], axis=1)
-        gating_vector = gating_vector.reshape((self.number_of_decoders, x.shape[0], 1))
+        """
+        Predicts reconstructions from the autoencoder pairs. The most suited autoencoder pair for a
+        particular datapoint is inferred by the gating network, so the decoder with the highest computed
+        gating weight is selected for each datapoint.
 
-        # get the reconstructions from each encoder/decoder pair and reshape it
+        :param x: Dataframe with feature observations
+        :return: Dataframe with reconstructed features
+        """
+
+        # determine the decoder best suited for reconstructing each datapoint and only choose
+        # that one's predictions/reconstructions
+        best_decoder = self.predict_gating_weights(x)[:, 1:].argmax(axis=1)
+        row_number = np.arange(best_decoder.shape[0])
         reconstructions = np.array([model.predict(x) for _, model in self.autoencoder_dict.items()])
-        reconstructions = reconstructions.reshape(
-            (self.number_of_decoders, x.shape[0], x.shape[1]))
-
-        # apply gating weights and sum the contributions from each decoder to get the final weighted
-        # average for each data point
-        weighted_reconstruction_slabs = np.multiply(gating_vector, reconstructions)
-        final_reconstructions = np.sum(weighted_reconstruction_slabs, axis=0)
+        final_reconstructions = reconstructions[best_decoder, row_number, :]
         final_reconstructions = pd.DataFrame(final_reconstructions,
                                              columns=x.columns,
                                              index=x.index)

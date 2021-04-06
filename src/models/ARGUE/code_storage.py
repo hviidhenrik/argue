@@ -80,3 +80,44 @@ for epoch in range(epochs):
 
     vprint(verbose, f"Alarm epoch loss: {np.mean(epoch_loss):.4f}, "
                     f"Binary accuracy: {np.mean(epoch_metric):.4f}")
+
+
+    def predict_reconstructions(self,
+                                x: DataFrame,
+                                weighted_average: bool = False):
+        """
+        Predicts reconstructions from the autoencoder pairs. The most suited autoencoder pair for a
+        particular datapoint is inferred by the gating network, so the decoder with the highest computed
+        gating weight is selected for each datapoint.
+
+        :param x: Dataframe with feature observations
+        :return:
+        """
+        # get the gating weights for decoder and each data point and softmax it so the decoder weights
+        # for each data point sums to one
+        if weighted_average:
+            gating_vector = softmax(self.predict_gating_weights(x)[:, 1:], axis=1)
+            gating_vector = gating_vector.reshape((self.number_of_decoders, x.shape[0], 1))
+
+            # get the reconstructions from each encoder/decoder pair and reshape it
+            reconstructions = np.array([model.predict(x) for _, model in self.autoencoder_dict.items()])
+            reconstructions = reconstructions.reshape(
+                (self.number_of_decoders, x.shape[0], x.shape[1]))
+
+            # apply gating weights and sum the contributions from each decoder to get the final weighted
+            # average for each data point
+            weighted_reconstruction_slabs = np.multiply(gating_vector, reconstructions)
+            final_reconstructions = np.sum(weighted_reconstruction_slabs, axis=0)
+
+        else:
+            # determine the decoder best suited for reconstructing each predicted datapoint and only choose
+            # that one's predictions/reconstructions
+            best_decoder = self.predict_gating_weights(x)[:, 1:].argmax(axis=1)
+            row_number = np.arange(best_decoder.shape[0])
+            reconstructions = np.array([model.predict(x) for _, model in self.autoencoder_dict.items()])
+            final_reconstructions = reconstructions[best_decoder, row_number, :]
+
+        final_reconstructions = pd.DataFrame(final_reconstructions,
+                                             columns=x.columns,
+                                             index=x.index)
+        return final_reconstructions
