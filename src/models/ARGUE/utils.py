@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import WindowsPath
 import pandas as pd
+import numpy as np
+from pandas import DataFrame
 from typing import List, Union
 
 import tensorflow as tf
@@ -54,12 +56,23 @@ def vprint(verbose: Union[bool, int], str_to_print: str):
         print(str_to_print)
 
 
-def partition_in_quantiles(x, column: str, q: List[float] = None):
-    if q is None:
-        q = [0, 0.25, 0.5, 0.75, 1.]
-    bins = pd.qcut(x[column], q, labels=False)
+def partition_in_quantiles(x, column: str, quantiles: List[float] = None):
+    if quantiles is None:
+        quantiles = [0, 0.25, 0.5, 0.75, 1.]
+    bins = pd.qcut(x[column], quantiles, labels=False)
     x_out = x.copy()
     x_out["class"] = bins + 1  # add one since the classes to ARGUE must start in 1
     return x_out
+
+
+def generate_noise_samples(x: DataFrame, quantiles: List[float] = [0.025, 0.975],
+                           stdev: float = 1, stdevs_away: float = 3):
+    qs = np.quantile(x, quantiles)
+    N = x.shape[0] // 2
+    input_dim = pd.DataFrame(x).shape[1]
+    noise_below = np.random.normal(qs[0] - stdev * stdevs_away, stdev, size=(N, input_dim))
+    noise_above = np.random.normal(qs[1] + stdev * stdevs_away, stdev, size=(N, input_dim))
+    df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
+    return df_noise
 
 

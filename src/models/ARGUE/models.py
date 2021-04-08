@@ -25,16 +25,21 @@ plt.style.use('seaborn')
 #  Required:
 #  - make plotting features
 #     - learning curves
-#   - a clustering method could be standard partitioning method, if no class vector is given
+#  - a clustering method could be standard partitioning method, if no class vector is given
 #  Nice to have:
 #  - make data handling more clean (maybe make a class for handling this)
 #  - make build_model able to take Network class to specify submodels more flexibly
 #  - class ARGUEPrinter that takes an ARGUE obj and prints nicely readable output from it
 #  - more realistic anomalies for the noise counter examples
+#  - restore best weights
+#  - learning rate schedule
+#  - early stopping
 #  Experimental:
 #  - try separate optimizers and loss for the autoencoder pairs
-#  - make noise distribution only have values "outside" the scaled features by e.g. making large gaussian and
-#    then remove values inside the 99% limits or similar
+#  - could the raw alarm probabilities be used without the gating if we simply take the minimum probability over all
+#    the models for each datapoint?
+#  - connect alarm to encoder
+#  - tuning of false positives in the alarm and gating networks
 
 class ARGUE:
     def __init__(self,
@@ -180,26 +185,34 @@ class ARGUE:
             partition_labels: Union[DataFrame, List[int]],
             validation_split: float = 0.1,
             batch_size: int = 128,
-            epochs: int = 50,
-            number_of_batches: int = 32,
+            autoencoder_batch_size: Optional[int] = None,
+            alarm_gating_batch_size: Optional[int] = None,
+            epochs: int = 10,
+            autoencoder_epochs: Optional[int] = None,
+            alarm_epochs: Optional[int] = None,
+            gating_epochs: Optional[int] = None,
             n_noise_samples: Optional[int] = None,
             noise_mean: float = 0.5,
             noise_sd: float = 1.0,
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam"):
 
+        autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
+        alarm_epochs = epochs if alarm_epochs is None else alarm_epochs
+        gating_epochs = epochs if gating_epochs is None else gating_epochs
+        autoencoder_batch_size = batch_size if autoencoder_batch_size is None else autoencoder_batch_size
+        alarm_gating_batch_size = batch_size if alarm_gating_batch_size is None else alarm_gating_batch_size
+
         # form initial training data making sure labels and classes are right
         unique_partitions = np.unique(list(partition_labels))
-        vprint(self.verbose, "Preparing data: slicing into partitions and batches...")
+        vprint(self.verbose, "Preparing data: slicing into partitions and batches...\n"
+                             f"Data dimensions: {x.shape}")
         x_copy = x.copy()
         x_copy = pd.concat([x_copy, partition_labels], axis=1)
         x_copy.rename(columns={x_copy.columns[-1]: "class"})
 
         # make gaussian noise samples so the optimization doesn't only see "healthy" data
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
-        n_noise_samples = x.shape[0] if n_noise_samples is None else n_noise_samples
-        x_noise = pd.DataFrame(np.random.normal(loc=noise_mean, scale=noise_sd,
-                                                size=(n_noise_samples, x.shape[1])),
-                               columns=x.columns)
+        x_noise = generate_noise_samples(x_copy, quantiles=[0.005, 0.995], stdev=1, stdevs_away=3)
         x_noise["class"] = -1
         x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
@@ -211,16 +224,15 @@ class ARGUE:
         x_train, x_val, gating_train_labels, gating_val_labels = train_test_split(x_with_noise_and_labels,
                                                                                   gating_label_vectors,
                                                                                   test_size=validation_split)
+        val_batch_size = 1024 if x_val.shape[0] >= 1024 else 128
 
         # make training set for the alarm and gating networks
         alarm_gating_train_dataset = tf.data.Dataset.from_tensor_slices(
             (x_train.drop(columns="class"), gating_train_labels))
-        alarm_gating_train_dataset = alarm_gating_train_dataset.shuffle(1024).batch(batch_size,
-                                                                                    drop_remainder=True)
-        alarm_gating_val_dataset = tf.data.Dataset.from_tensor_slices(
-            (x_val.drop(columns="class"),
-             gating_val_labels))
-        alarm_gating_val_dataset = alarm_gating_val_dataset.batch(batch_size, drop_remainder=True)
+        alarm_gating_train_dataset = alarm_gating_train_dataset.shuffle(1024).batch(alarm_gating_batch_size,
+                                                                                    drop_remainder=True).prefetch(2)
+        alarm_gating_val_dataset = tf.data.Dataset.from_tensor_slices((x_val.drop(columns="class"), gating_val_labels))
+        alarm_gating_val_dataset = alarm_gating_val_dataset.batch(val_batch_size, drop_remainder=False).prefetch(2)
 
         # make training set for the autoencoder pairs
         autoencoder_train_dataset_dict = {}
@@ -230,20 +242,22 @@ class ARGUE:
             val_dataset = x_val[x_val["class"] == data_partition].drop(columns=["class"])
             train_dataset = shuffle(train_dataset)
             val_dataset = shuffle(val_dataset)
+            val_batch_size = 1024 if val_dataset.shape[0] >= 1024 else 128
 
-            partition_batch_size = train_dataset.shape[0] // number_of_batches
+            # partition_batch_size = train_dataset.shape[0] // number_of_batches
+            number_of_batches = train_dataset.shape[0] // autoencoder_batch_size
 
             train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
             val_dataset = tf.data.Dataset.from_tensor_slices(val_dataset)
 
-            train_dataset = train_dataset.shuffle(1024).batch(partition_batch_size,
+            train_dataset = train_dataset.shuffle(1024).batch(autoencoder_batch_size,
                                                               drop_remainder=True).prefetch(2)
-            val_dataset = val_dataset.batch(partition_batch_size, drop_remainder=True).prefetch(2)
+            val_dataset = val_dataset.batch(val_batch_size, drop_remainder=False).prefetch(2)
             autoencoder_train_dataset_dict[f"class_{data_partition}"] = train_dataset
             autoencoder_val_dataset_dict[f"class_{data_partition}"] = val_dataset
 
             vprint(self.verbose, f"Autoencoder data partition {partition_number} batch size: "
-                            f"{partition_batch_size}, number of batches (train set): {number_of_batches}")
+                                 f"{autoencoder_batch_size}, number of batches (train set): {number_of_batches}")
 
         # NOTE: using one optimizer and loss function for all decoders for now. Should try one for each..
         # first train encoder and decoders
@@ -255,7 +269,7 @@ class ARGUE:
         ae_val_metric = tf.metrics.MeanAbsoluteError()
 
         # train loop
-        for epoch in range(epochs):
+        for epoch in range(autoencoder_epochs):
             vprint(self.verbose, f"\n>> Epoch {epoch} - autoencoder")
             total_train_loss = []
             total_train_metric = []
@@ -273,7 +287,7 @@ class ARGUE:
                 # for each model, iterate over all its batches from its own dataset to update weights
                 # TODO in the future, if this doesnt work well, training should alternate between models,
                 #  one batch for each at a time
-                partition = name[-1]
+                partition = name[12:]
                 for step, x_batch_train in enumerate(autoencoder_train_dataset_dict[f"class_{partition}"]):
                     with tf.GradientTape() as tape:
                         predictions = model(x_batch_train, training=True)
@@ -305,17 +319,17 @@ class ARGUE:
                 epoch_val_metric.append(val_metric)
 
                 vprint(self.verbose > 1, f"Model {name[-1]} loss [train: {np.mean(epoch_train_loss):.4f}, "
-                                    f"val: {np.mean(epoch_val_loss):.4f}] "
-                                    f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
-                                    f"val: {np.mean(epoch_val_metric):.4f}]")
+                                         f"val: {np.mean(epoch_val_loss):.4f}] "
+                                         f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
+                                         f"val: {np.mean(epoch_val_metric):.4f}]")
                 total_train_loss.append(np.mean(epoch_train_loss))
                 total_val_loss.append(np.mean(epoch_val_loss))
                 total_train_metric.append(np.mean(epoch_train_metric))
                 total_val_metric.append(np.mean(epoch_val_metric))
             vprint(self.verbose, f"--- Average epoch loss [train: {np.mean(total_train_loss):.4f}, "
-                            f"val: {np.mean(total_val_loss):.4f}] "
-                            f"| Average model MAE [train: {np.mean(total_train_metric):.4f}, "
-                            f"val: {np.mean(total_val_metric):.4f}]")
+                                 f"val: {np.mean(total_val_loss):.4f}] "
+                                 f"| Average model MAE [train: {np.mean(total_train_metric):.4f}, "
+                                 f"val: {np.mean(total_val_metric):.4f}]")
         self._make_non_trainable("autoencoders")
 
         # train alarm network
@@ -327,7 +341,7 @@ class ARGUE:
         alarm_val_metric = tf.metrics.BinaryAccuracy()
 
         # training loop
-        for epoch in range(epochs):
+        for epoch in range(alarm_epochs):
             vprint(self.verbose, f"\n>> Epoch {epoch} - alarm")
             epoch_train_loss = []
             epoch_train_metric = []
@@ -368,10 +382,9 @@ class ARGUE:
                     epoch_val_metric.append(val_error_metric)
 
             vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
-                            f"val: {np.mean(epoch_val_loss):.4f}] "
-                            f"| Accuracy [train: {np.mean(epoch_train_metric):.4f}, "
-                            f"val: {np.mean(epoch_val_metric):.4f}]")
-
+                                 f"val: {np.mean(epoch_val_loss):.4f}] "
+                                 f"| Accuracy [train: {np.mean(epoch_train_metric):.4f}, "
+                                 f"val: {np.mean(epoch_val_metric):.4f}]")
         self._make_non_trainable("alarm")
 
         # train gating network
@@ -384,7 +397,7 @@ class ARGUE:
         gating_val_metric = tf.metrics.CategoricalAccuracy()
         # TODO this will be faster if done inside the same training loop as the alarm model,
         #  but kept separate for easier implementation and getting the details right
-        for epoch in range(epochs):
+        for epoch in range(gating_epochs):
             vprint(self.verbose, f"\n>> Epoch {epoch} - gating")
             epoch_train_loss = []
             epoch_train_metric = []
@@ -418,9 +431,9 @@ class ARGUE:
                 gating_val_metric.reset_states()
 
             vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
-                            f"val: {np.mean(epoch_val_loss):.4f}] "
-                            f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
-                            f"val: {np.mean(epoch_val_metric):.4f}]")
+                                 f"val: {np.mean(epoch_val_loss):.4f}] "
+                                 f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
+                                 f"val: {np.mean(epoch_val_metric):.4f}]")
 
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
 
@@ -446,14 +459,20 @@ class ARGUE:
                                x,
                                index: Optional[Collection] = None,
                                true_classes: Optional[List[int]] = None,
-                               moving_average_window: Optional[int] = 40,
+                               moving_average_window: Optional[int] = 80,
                                **kwargs):
         df_preds = pd.DataFrame(self.predict(x), index, columns=["Anomaly probability"])
         if moving_average_window is not None:
-            df_preds["Moving average"] = df_preds.rolling(window=moving_average_window).mean()
+            df_preds[f"{moving_average_window} sample moving average"] = \
+                df_preds.rolling(window=moving_average_window).mean()
         if true_classes:
             df_preds["class"] = true_classes
-        fig = df_preds.plot(subplots=True, **kwargs)
+
+        df_preds.index = pd.to_datetime(df_preds.index)
+        df_preds.index = df_preds.index.map(lambda t: t.strftime("%d-%m-%Y"))
+        fig = df_preds.plot(subplots=True, rot=15, color=["#4099DA", "red"], **kwargs)
+        plt.xlabel("")
+        plt.suptitle("ARGUE anomaly predictions")
         return fig
 
     def predict_reconstructions(self,
