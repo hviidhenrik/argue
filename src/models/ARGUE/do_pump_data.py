@@ -52,7 +52,7 @@ if __name__ == "__main__":
         model.fit(df_train.drop(columns=["class"]), df_train["class"],
                   epochs=3, autoencoder_epochs=40, alarm_gating_epochs=5,
                   autoencoder_batch_size=256, alarm_gating_batch_size=256,
-                  optimizer="adam", validation_split=0.2, noise_mean=4, noise_sd=1)
+                  optimizer="adam", validation_split=0.2, noise_mean=4, noise_stdev=1)
         model.save(model_path)
 
     model.predict_plot_reconstructions(df_test)

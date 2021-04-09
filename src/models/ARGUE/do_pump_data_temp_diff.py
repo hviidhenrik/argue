@@ -27,15 +27,14 @@ if __name__ == "__main__":
     df_raw = df_raw[["effect_pump_30_MW", "flow_after_pump", "temp_after_pump", "temp_slipring_water_suction_side",
                      "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
     # form train and test sets
-    df_train = df_raw.loc[:"2020-10-15 23:59:59"]
-    df_test = df_raw.loc["2020-10-16":]
+    df_train = df_raw.loc[:"2020-10-04 23:59:59"]
+    df_test = df_raw.loc["2020-10-05":]
 
     # scale the data and partition it into classes
     scaler = StandardScaler().fit(df_train)
     df_train = pd.DataFrame(scaler.transform(df_train), columns=df_train.columns, index=df_train.index)
     df_test = pd.DataFrame(scaler.transform(df_test), columns=df_test.columns, index=df_test.index)
-    df_train = partition_in_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 0.2, 0.4, 0.6,
-                                                                                0.8, 1])
+    df_train = partition_in_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 0.5, 1])
 
     # Train ARGUE
     # USE_SAVED_MODEL = True
@@ -48,23 +47,36 @@ if __name__ == "__main__":
         batch_size = 256
         model = ARGUE(input_dim=len(df_train.columns[:-1]),
                       number_of_decoders=len(df_train["class"].unique()),
-                      latent_dim=6, verbose=1)
-        model.build_model(encoder_hidden_layers=[10, 9, 8],
-                          decoders_hidden_layers=[8, 9, 10],
-                          alarm_hidden_layers=[20, 10, 5, 3],
+                      latent_dim=2, verbose=1)
+        model.build_model(encoder_hidden_layers=[5, 5, 4, 3],
+                          decoders_hidden_layers=[3, 4, 5, 5],
+                          alarm_hidden_layers=[20, 15, 10, 5, 3],
                           gating_hidden_layers=[20, 15, 10],
-                          all_activations="relu")
+                          all_activations="tanh")
         model.fit(df_train.drop(columns=["class"]), df_train["class"],
-                  epochs=None, autoencoder_epochs=100, alarm_epochs=20, gating_epochs=20,
+                  epochs=None, autoencoder_epochs=1, alarm_epochs=1, gating_epochs=4,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
-                  optimizer="adam", validation_split=0.15, noise_mean=4, noise_sd=1)
-        model.save(model_path)
+                  optimizer="adam",
+                  validation_split=0.15, n_noise_samples=None, noise_stdev=1, noise_stdevs_away=3)
+        # model.save(model_path)
+
+    # predict some of the training set to ensure the models are behaving correctly on this
+    df_train_sanity_check = df_train.drop(columns=["class"]).sample(frac=0.003)
+    model.predict_plot_reconstructions(df_train_sanity_check)
+    plt.suptitle("Sanity check")
+    plt.show()
 
     model.predict_plot_reconstructions(df_test)
+    plt.suptitle("Test set")
     plt.show()
 
     # predict the test set
+    model.predict_plot_anomalies(df_train_sanity_check, moving_average_window=120)
+    plt.suptitle("Sanity check")
+    plt.show()
+
     model.predict_plot_anomalies(df_test, df_test.index, moving_average_window=120)
+    plt.suptitle("Test set")
     plt.show()
 
 

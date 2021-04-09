@@ -3,7 +3,7 @@ from pathlib import WindowsPath
 import pandas as pd
 import numpy as np
 from pandas import DataFrame
-from typing import List, Union
+from typing import List, Union, Optional
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense
@@ -65,13 +65,16 @@ def partition_in_quantiles(x, column: str, quantiles: List[float] = None):
     return x_out
 
 
-def generate_noise_samples(x: DataFrame, quantiles: List[float] = [0.025, 0.975],
+def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None,
+                           n_noise_samples: Optional[int] = None,
                            stdev: float = 1, stdevs_away: float = 3):
-    qs = np.quantile(x, quantiles)
-    N = x.shape[0] // 2
+
+    quantiles = [0.025, 0.975] if quantiles is None else quantiles
+    N = x.shape[0] // 2 if n_noise_samples is None else n_noise_samples // 2
+    qs = x.quantile(quantiles)
     input_dim = pd.DataFrame(x).shape[1]
-    noise_below = np.random.normal(qs[0] - stdev * stdevs_away, stdev, size=(N, input_dim))
-    noise_above = np.random.normal(qs[1] + stdev * stdevs_away, stdev, size=(N, input_dim))
+    noise_below = np.random.normal(qs.iloc[0] - stdev * stdevs_away, stdev, size=(N, input_dim))
+    noise_above = np.random.normal(qs.iloc[1] + stdev * stdevs_away, stdev, size=(N, input_dim))
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
     return df_noise
 
