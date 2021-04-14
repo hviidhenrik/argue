@@ -53,14 +53,14 @@ if __name__ == "__main__":
                           all_activations="relu",
                           use_encoder_activations_in_alarm=True)
         model.fit(df_train.drop(columns=["class"]), df_train["class"],
-                  epochs=None, autoencoder_epochs=500, alarm_epochs=200, gating_epochs=200,
+                  epochs=None, autoencoder_epochs=1, alarm_epochs=10, gating_epochs=1,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=60,
                   alarm_gating_decay_after_epochs=20,
                   decay_rate=0.6,
                   validation_split=0.15, n_noise_samples=None, noise_stdev=1, noise_stdevs_away=3)
-        model.save(model_path)
+        # model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["class"]).sample(300).sort_index()

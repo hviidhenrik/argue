@@ -108,8 +108,8 @@ class ARGUE:
             predictions = model(x, training=training)
             loss_value = loss(x, predictions)
         if training:
-            gradients = tape.gradient(loss_value, model.trainable_weights)
-            optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+            gradients = tape.gradient(loss_value, model.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         metric.update_state(x, predictions)
         return loss_value
 
@@ -187,17 +187,18 @@ class ARGUE:
         return self
 
     @tf.function
-    def _alarm_gating_validation_step(self, x_batch_val, true_gating, model, loss, metric):
-        is_alarm_model = model.outputs[0].shape[1] == 1
-        if is_alarm_model:
-            predictions = tf.stack(model(x_batch_val, training=False), axis=2)
-            predictions = tf.reshape(predictions, shape=(-1, self.number_of_decoders))
-            true_val_target = 1 - true_gating[:, 1:]
-        else:
-            predictions = model(x_batch_val, training=False)
-            true_val_target = true_gating
-        metric.update_state(true_val_target, predictions)
-        return loss(true_val_target, predictions)
+    def _alarm_gating_validation_step(self, x_batch_val, true_gating, alarm_loss, gating_loss,
+                                      alarm_metric, gating_metric):
+        true_alarm = 1 - true_gating[:, 1:]
+        predicted_alarm = tf.stack(self.input_to_alarm(x_batch_val, training=False), axis=2)
+        predicted_alarm = tf.reshape(predicted_alarm, shape=(-1, self.number_of_decoders))
+        predicted_gating = self.input_to_gating(x_batch_val, training=False)
+        alarm_loss_value = alarm_loss(true_alarm, predicted_alarm)
+        gating_loss_value = gating_loss(true_gating, predicted_gating)
+        alarm_metric.update_state(true_alarm, predicted_alarm)
+        gating_metric.update_state(true_gating, predicted_gating)
+        loss = alarm_loss_value + gating_loss_value
+        return loss, alarm_loss_value, gating_loss_value
 
     def fit(self,
             x: Union[DataFrame, np.ndarray],
@@ -319,28 +320,27 @@ class ARGUE:
                 # for each model, iterate over all its batches from its own dataset to update weights
                 # TODO in the future, if this doesnt work well, training should alternate between models,
                 #  one batch for each at a time
-
                 @tf.function
                 def _ae_train_step(x_batch_train):
                     with tf.GradientTape() as tape:
                         predictions = model(x_batch_train, training=True)
                         train_loss_value = ae_train_loss(x_batch_train, predictions)
-                    gradients = tape.gradient(train_loss_value, model.trainable_weights)
-                    ae_optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+                    gradients = tape.gradient(train_loss_value, model.trainable_variables)
+                    ae_optimizer.apply_gradients(zip(gradients, model.trainable_variables))
                     ae_train_metric.update_state(x_batch_train, predictions)
                     return train_loss_value
 
                 partition = name[12:]
                 for step, x_batch_train in enumerate(autoencoder_train_dataset_dict[f"class_{partition}"]):
-                    train_loss_value = _ae_train_step(x_batch_train)
+                    total_loss = _ae_train_step(x_batch_train)
                     error_metric = ae_train_metric.result()
                     epoch_train_metric.append(error_metric)
                     ae_train_metric.reset_states()
 
-                    train_loss_value = float(train_loss_value)
-                    epoch_train_loss.append(train_loss_value)
+                    total_loss = float(total_loss)
+                    epoch_train_loss.append(total_loss)
                     if step % 10 == 0 and self.verbose > 1:
-                        print(f"Batch {step} training loss: {train_loss_value:.4f}, "
+                        print(f"Step {step} training loss: {total_loss:.4f}, "
                               f"MAE: {float(error_metric):.4f}")
 
                 # end of current submodel's epoch validation loop
@@ -374,135 +374,178 @@ class ARGUE:
 
         # train alarm network
         vprint(self.verbose, "\n\n=== Phase 2: training alarm network ===")
+
+        # init optimizers
         alarm_optimizer = tf.keras.optimizers.get(optimizer)
-        if alarm_gating_decay_after_epochs is not None:
-            decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
-            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
-                                                                         decay_steps=decay_steps,
-                                                                         decay_rate=decay_rate)
-            alarm_optimizer.__init__(learning_rate=lr_schedule)
-        alarm_train_loss = tf.losses.BinaryCrossentropy()
-        alarm_val_loss = tf.losses.BinaryCrossentropy()
-        alarm_train_metric = tf.metrics.BinaryAccuracy()
-        alarm_val_metric = tf.metrics.BinaryAccuracy()
-
-        # training loop
-        model = self.input_to_alarm
-        alarm_network_weights = self.alarm.keras_model.trainable_weights
-        N_decoders = self.number_of_decoders
-
-        @tf.function
-        def _alarm_train_step(x_batch_train, true_gating):
-            with tf.GradientTape() as tape:
-                predicted_alarm = tf.stack(model(x_batch_train, training=True), axis=2)
-                predicted_alarm = tf.reshape(predicted_alarm, shape=(-1, N_decoders))
-                true_train_alarm = 1-true_gating[:, 1:]
-                train_loss_value = alarm_train_loss(true_train_alarm, predicted_alarm)
-            gradients = tape.gradient(train_loss_value, alarm_network_weights)
-            alarm_optimizer.apply_gradients(zip(gradients, alarm_network_weights))
-            alarm_train_metric.update_state(true_train_alarm, predicted_alarm)
-            return train_loss_value
-
-        for epoch in range(1, alarm_epochs + 1):
-            vprint(self.verbose, f"\n>> Epoch {epoch} - alarm")
-            epoch_train_loss = []
-            epoch_train_metric = []
-            epoch_val_loss = []
-            epoch_val_metric = []
-
-            # weight update loop
-            for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
-                train_loss_value = _alarm_train_step(x_batch_train, true_gating)
-                train_error_metric = alarm_train_metric.result()
-                epoch_train_metric.append(train_error_metric)
-                alarm_train_metric.reset_states()
-                epoch_train_loss.append(float(train_loss_value))
-                vprint(step % 20 == 0 and self.verbose > 1,
-                       f"\nStep: {step} - "
-                       f"Alarm model batch loss: {float(train_loss_value)}")
-
-                if step % 40 == 0 and self.verbose > 1:
-                    print(f"Step {step} training loss: {float(train_loss_value):.4f}, ")
-
-            # end of epoch validation loop
-            for (x_batch_val, true_gating) in alarm_gating_val_dataset:
-                val_loss_value = self._alarm_gating_validation_step(x_batch_val, true_gating, model,
-                                                                    alarm_val_loss, alarm_val_metric)
-                epoch_val_loss.append(val_loss_value)
-                val_error_metric = alarm_val_metric.result()
-                epoch_val_metric.append(val_error_metric)
-                alarm_val_metric.reset_states()
-
-            vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
-                                 f"val: {np.mean(epoch_val_loss):.4f}] "
-                                 f"| Accuracy [train: {np.mean(epoch_train_metric):.4f}, "
-                                 f"val: {np.mean(epoch_val_metric):.4f}]")
-            if alarm_gating_decay_after_epochs is not None:
-                vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
-                       "\nReduced learning rate!\n")
-        self._make_non_trainable("alarm")
-
-        # train gating network
-        vprint(self.verbose, "\n\n=== Phase 3: training gating network ===")
-
         gating_optimizer = tf.keras.optimizers.get(optimizer)
         if alarm_gating_decay_after_epochs is not None:
             decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
             lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
                                                                          decay_steps=decay_steps,
                                                                          decay_rate=decay_rate)
+            alarm_optimizer.__init__(learning_rate=lr_schedule)
             gating_optimizer.__init__(learning_rate=lr_schedule)
+
+        # init losses
+        alarm_train_loss = tf.losses.BinaryCrossentropy()
+        alarm_val_loss = tf.losses.BinaryCrossentropy()
+        alarm_train_metric = tf.metrics.BinaryAccuracy()
+        alarm_val_metric = tf.metrics.BinaryAccuracy()
         gating_train_loss = tf.losses.CategoricalCrossentropy()
         gating_train_metric = tf.metrics.CategoricalAccuracy()
         gating_val_loss = tf.losses.CategoricalCrossentropy()
         gating_val_metric = tf.metrics.CategoricalAccuracy()
-        # TODO this will be faster if done inside the same training loop as the alarm model,
-        #  but kept separate for easier implementation and getting the details right
 
-        model = self.input_to_gating
-        gating_network_weights = self.gating.keras_model.trainable_weights
+        # training loop
+        gating_model = self.input_to_gating
+        alarm_model = self.input_to_alarm
+        gating_network_variables = self.gating.keras_model.trainable_variables
+        alarm_network_variables = self.alarm.keras_model.trainable_variables
+
+        N_decoders = self.number_of_decoders
 
         @tf.function
-        def _gating_train_step(x_batch_train, true_gating):
-            with tf.GradientTape() as tape:
-                predicted_train_gating = model(x_batch_train, training=True)
-                train_loss_value = gating_train_loss(true_gating, predicted_train_gating)
-            gradients = tape.gradient(train_loss_value, gating_network_weights)
-            gating_optimizer.apply_gradients(zip(gradients, gating_network_weights))
-            gating_train_metric.update_state(true_gating, predicted_train_gating)
-            return train_loss_value
+        def _alarm_gating_train_step(x_batch_train, true_gating):
+            true_alarm = 1-true_gating[:, 1:]
+            with tf.GradientTape(persistent=True) as tape:
+                predicted_alarm = tf.stack(alarm_model(x_batch_train, training=True), axis=2)
+                predicted_alarm = tf.reshape(predicted_alarm, shape=(-1, N_decoders))
+                predicted_gating = gating_model(x_batch_train, training=True)
+                alarm_loss_value = alarm_train_loss(true_alarm, predicted_alarm)
+                gating_loss_value = gating_train_loss(true_gating, predicted_gating)
+                # note: might want to split this into normal and anomalous samples to control weight penalties
+                loss = alarm_loss_value + gating_loss_value
+            alarm_gradients = tape.gradient(loss, alarm_network_variables + gating_network_variables)
+            alarm_optimizer.apply_gradients(zip(alarm_gradients,
+                                                alarm_network_variables + gating_network_variables))
+            alarm_train_metric.update_state(true_alarm, predicted_alarm)
+            gating_train_metric.update_state(true_gating, predicted_gating)
+            return loss, alarm_loss_value, gating_loss_value
 
-        for epoch in range(1, gating_epochs + 1):
-            vprint(self.verbose, f"\n>> Epoch {epoch} - gating")
-            epoch_train_loss = []
-            epoch_train_metric = []
-            epoch_val_loss = []
-            epoch_val_metric = []
+        for epoch in range(1, alarm_epochs + 1):
+            vprint(self.verbose, f"\n>> Epoch {epoch} - alarm & gating")
+            alarm_epoch_train_loss = []
+            alarm_epoch_train_metric = []
+            alarm_epoch_val_loss = []
+            alarm_epoch_val_metric = []
+            gating_epoch_train_loss = []
+            gating_epoch_train_metric = []
+            gating_epoch_val_loss = []
+            gating_epoch_val_metric = []
+
+            # weight update loop
             for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
-                train_loss_value = _gating_train_step(x_batch_train, true_gating)
-                train_error_metric = gating_train_metric.result()
-                epoch_train_metric.append(train_error_metric)
-                epoch_train_loss.append(float(train_loss_value))
+                total_loss, alarm_loss, gating_loss = _alarm_gating_train_step(x_batch_train, true_gating)
+                alarm_epoch_train_metric.append(alarm_train_metric.result())
+                gating_epoch_train_metric.append(alarm_train_metric.result())
+
+                alarm_train_metric.reset_states()
                 gating_train_metric.reset_states()
 
-                if step % 10 == 0 and self.verbose > 1:
-                    print(f"Batch {step} training loss: {float(train_loss_value):.4f}, ")
+                alarm_epoch_train_loss.append(float(alarm_loss))
+                gating_epoch_train_loss.append(float(gating_loss))
 
+                vprint(step % 20 == 0 and self.verbose > 1,
+                       f"\nStep: {step} - "
+                       f"Batch loss - Alarm: {float(alarm_loss):.4f}, Gating: {float(gating_loss):.4f}")
+
+            # end of epoch validation loop
             for (x_batch_val, true_gating) in alarm_gating_val_dataset:
-                val_loss_value = self._alarm_gating_validation_step(x_batch_val, true_gating, model,
-                                                                    gating_val_loss, gating_val_metric)
-                epoch_val_loss.append(float(val_loss_value))
-                val_error_metric = gating_val_metric.result()
-                epoch_val_metric.append(val_error_metric)
+                total_loss, alarm_loss, gating_loss = self._alarm_gating_validation_step(
+                     x_batch_val, true_gating, alarm_val_loss,
+                     gating_val_loss, alarm_val_metric,
+                     gating_val_metric)
+                alarm_epoch_val_loss.append(alarm_loss)
+                gating_epoch_val_loss.append(gating_loss)
+
+                alarm_epoch_val_metric.append(alarm_val_metric.result())
+                gating_epoch_val_metric.append(gating_val_metric.result())
+                alarm_val_metric.reset_states()
                 gating_val_metric.reset_states()
 
-            vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
-                                 f"val: {np.mean(epoch_val_loss):.4f}] "
-                                 f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
-                                 f"val: {np.mean(epoch_val_metric):.4f}]")
+            vprint(self.verbose, f"Alarm loss  [train: {np.mean(alarm_epoch_train_loss):.4f}, "
+                                 f"val: {np.mean(alarm_epoch_val_loss):.4f}] "
+                                 f"| Accuracy  [train: {np.mean(alarm_epoch_train_metric):.4f}, "
+                                 f"val: {np.mean(alarm_epoch_val_metric):.4f}]")
+            vprint(self.verbose, f"Gating loss [train: {np.mean(gating_epoch_train_loss):.4f}, "
+                                 f"val: {np.mean(gating_epoch_val_loss):.4f}] "
+                                 f"| Accuracy [train: {np.mean(gating_epoch_train_metric):.4f}, "
+                                 f"val: {np.mean(gating_epoch_val_metric):.4f}]")
             if alarm_gating_decay_after_epochs is not None:
                 vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
                        "\nReduced learning rate!\n")
+        self._make_non_trainable("alarm")
+        self._make_non_trainable("gating")
+
+        # train gating network
+        # vprint(self.verbose, "\n\n=== Phase 3: training gating network ===")
+
+        # @tf.function
+        # def _gating_train_step(x_batch_train, true_gating):
+        #     with tf.GradientTape() as tape:
+        #         predicted_train_gating = model(x_batch_train, training=True)
+        #         train_loss_value = gating_train_loss(true_gating, predicted_train_gating)
+        #     gradients = tape.gradient(train_loss_value, gating_network_weights)
+        #     gating_optimizer.apply_gradients(zip(gradients, gating_network_weights))
+        #     gating_train_metric.update_state(true_gating, predicted_train_gating)
+        #     return train_loss_value
+
+        # gating_optimizer = tf.keras.optimizers.get(optimizer)
+        # if alarm_gating_decay_after_epochs is not None:
+        #     decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
+        #     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
+        #                                                                  decay_steps=decay_steps,
+        #                                                                  decay_rate=decay_rate)
+        #     gating_optimizer.__init__(learning_rate=lr_schedule)
+        # gating_train_loss = tf.losses.CategoricalCrossentropy()
+        # gating_train_metric = tf.metrics.CategoricalAccuracy()
+        # gating_val_loss = tf.losses.CategoricalCrossentropy()
+        # gating_val_metric = tf.metrics.CategoricalAccuracy()
+        #
+        # model = self.input_to_gating
+        # gating_network_weights = self.gating.keras_model.trainable_weights
+        #
+        # @tf.function
+        # def _gating_train_step(x_batch_train, true_gating):
+        #     with tf.GradientTape() as tape:
+        #         predicted_train_gating = model(x_batch_train, training=True)
+        #         train_loss_value = gating_train_loss(true_gating, predicted_train_gating)
+        #     gradients = tape.gradient(train_loss_value, gating_network_weights)
+        #     gating_optimizer.apply_gradients(zip(gradients, gating_network_weights))
+        #     gating_train_metric.update_state(true_gating, predicted_train_gating)
+        #     return train_loss_value
+
+        # for epoch in range(1, gating_epochs + 1):
+        #     vprint(self.verbose, f"\n>> Epoch {epoch} - gating")
+        #     epoch_train_loss = []
+        #     epoch_train_metric = []
+        #     epoch_val_loss = []
+        #     epoch_val_metric = []
+        #     for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
+        #         total_loss = _gating_train_step(x_batch_train, true_gating)
+        #         alarm_train_metric = gating_train_metric.result()
+        #         epoch_train_metric.append(alarm_train_metric)
+        #         epoch_train_loss.append(float(total_loss))
+        #         gating_train_metric.reset_states()
+        #
+        #         if step % 10 == 0 and self.verbose > 1:
+        #             print(f"Batch {step} training loss: {float(total_loss):.4f}, ")
+        #
+        #     for (x_batch_val, true_gating) in alarm_gating_val_dataset:
+        #         val_loss_value = self._alarm_gating_validation_step(x_batch_val, true_gating, model,
+        #                                                             gating_val_loss, gating_val_metric)
+        #         epoch_val_loss.append(float(val_loss_value))
+        #         val_error_metric = gating_val_metric.result()
+        #         epoch_val_metric.append(val_error_metric)
+        #         gating_val_metric.reset_states()
+        #
+        #     vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
+        #                          f"val: {np.mean(epoch_val_loss):.4f}] "
+        #                          f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
+        #                          f"val: {np.mean(epoch_val_metric):.4f}]")
+        #     if alarm_gating_decay_after_epochs is not None:
+        #         vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
+        #                "\nReduced learning rate!\n")
 
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
 
