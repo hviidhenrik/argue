@@ -27,7 +27,7 @@ plt.style.use('seaborn')
 #  - make plotting features
 #     - learning curves
 #  - make AUC evaluation
-#  - make alarm and gating train together
+#  - make one autoencoder model with multiple outputs, like the alarm model
 #  Nice to have:
 #  - a clustering method could be standard partitioning method, if no class vector is given
 #  - make data handling more clean (maybe make a class for handling this)
@@ -156,6 +156,7 @@ class ARGUE:
                                                          activation=gating_activation)
 
         # build all decoders/experts and connect them with the shared encoder. Store all in dicts.
+        # TODO: convert this to one model with multiple outputs like the alarm model
         alarm_outputs = []
         for i in range(1, self.number_of_decoders + 1):
             decoder_name = f"decoder_{i}"
@@ -270,7 +271,8 @@ class ARGUE:
             val_batch_size = 1024 if val_dataset.shape[0] >= 1024 else 128
 
             # partition_batch_size = train_dataset.shape[0] // number_of_batches
-            number_of_batches = train_dataset.shape[0] // autoencoder_batch_size
+            ae_number_of_batches = train_dataset.shape[0] // autoencoder_batch_size
+            alarm_gating_number_of_batches = x_train.shape[0] // alarm_gating_batch_size
 
             train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
             val_dataset = tf.data.Dataset.from_tensor_slices(val_dataset)
@@ -282,9 +284,11 @@ class ARGUE:
             autoencoder_val_dataset_dict[f"class_{data_partition}"] = val_dataset
 
             vprint(self.verbose, f"Autoencoder data partition {partition_number} batch size: "
-                                 f"{autoencoder_batch_size}, number of batches (train set): {number_of_batches}")
+                                 f"{autoencoder_batch_size}, number of batches (train set): {ae_number_of_batches}")
 
-        # NOTE: using one optimizer and loss function for all decoders for now. Should try one for each..
+        vprint(self.verbose, f"Alarm-gating batch size: {alarm_gating_batch_size}, "
+                             f"number of batches (train set): {alarm_gating_number_of_batches}")
+
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
         ae_optimizer = tf.keras.optimizers.get(optimizer)
@@ -294,8 +298,6 @@ class ARGUE:
                                                                          decay_steps=decay_steps,
                                                                          decay_rate=decay_rate)
             ae_optimizer.__init__(learning_rate=lr_schedule)
-        # ae_train_loss = tf.losses.MeanSquaredError()
-        # ae_val_loss = tf.losses.MeanSquaredError()
         ae_train_loss = tf.losses.BinaryCrossentropy()
         ae_val_loss = tf.losses.BinaryCrossentropy()
         ae_train_metric = tf.metrics.MeanAbsoluteError()
@@ -469,83 +471,13 @@ class ARGUE:
                                  f"val: {np.mean(alarm_epoch_val_metric):.4f}]")
             vprint(self.verbose, f"Gating loss [train: {np.mean(gating_epoch_train_loss):.4f}, "
                                  f"val: {np.mean(gating_epoch_val_loss):.4f}] "
-                                 f"| Accuracy [train: {np.mean(gating_epoch_train_metric):.4f}, "
+                                 f"| Accuracy  [train: {np.mean(gating_epoch_train_metric):.4f}, "
                                  f"val: {np.mean(gating_epoch_val_metric):.4f}]")
             if alarm_gating_decay_after_epochs is not None:
                 vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
                        "\nReduced learning rate!\n")
         self._make_non_trainable("alarm")
         self._make_non_trainable("gating")
-
-        # train gating network
-        # vprint(self.verbose, "\n\n=== Phase 3: training gating network ===")
-
-        # @tf.function
-        # def _gating_train_step(x_batch_train, true_gating):
-        #     with tf.GradientTape() as tape:
-        #         predicted_train_gating = model(x_batch_train, training=True)
-        #         train_loss_value = gating_train_loss(true_gating, predicted_train_gating)
-        #     gradients = tape.gradient(train_loss_value, gating_network_weights)
-        #     gating_optimizer.apply_gradients(zip(gradients, gating_network_weights))
-        #     gating_train_metric.update_state(true_gating, predicted_train_gating)
-        #     return train_loss_value
-
-        # gating_optimizer = tf.keras.optimizers.get(optimizer)
-        # if alarm_gating_decay_after_epochs is not None:
-        #     decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
-        #     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
-        #                                                                  decay_steps=decay_steps,
-        #                                                                  decay_rate=decay_rate)
-        #     gating_optimizer.__init__(learning_rate=lr_schedule)
-        # gating_train_loss = tf.losses.CategoricalCrossentropy()
-        # gating_train_metric = tf.metrics.CategoricalAccuracy()
-        # gating_val_loss = tf.losses.CategoricalCrossentropy()
-        # gating_val_metric = tf.metrics.CategoricalAccuracy()
-        #
-        # model = self.input_to_gating
-        # gating_network_weights = self.gating.keras_model.trainable_weights
-        #
-        # @tf.function
-        # def _gating_train_step(x_batch_train, true_gating):
-        #     with tf.GradientTape() as tape:
-        #         predicted_train_gating = model(x_batch_train, training=True)
-        #         train_loss_value = gating_train_loss(true_gating, predicted_train_gating)
-        #     gradients = tape.gradient(train_loss_value, gating_network_weights)
-        #     gating_optimizer.apply_gradients(zip(gradients, gating_network_weights))
-        #     gating_train_metric.update_state(true_gating, predicted_train_gating)
-        #     return train_loss_value
-
-        # for epoch in range(1, gating_epochs + 1):
-        #     vprint(self.verbose, f"\n>> Epoch {epoch} - gating")
-        #     epoch_train_loss = []
-        #     epoch_train_metric = []
-        #     epoch_val_loss = []
-        #     epoch_val_metric = []
-        #     for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
-        #         total_loss = _gating_train_step(x_batch_train, true_gating)
-        #         alarm_train_metric = gating_train_metric.result()
-        #         epoch_train_metric.append(alarm_train_metric)
-        #         epoch_train_loss.append(float(total_loss))
-        #         gating_train_metric.reset_states()
-        #
-        #         if step % 10 == 0 and self.verbose > 1:
-        #             print(f"Batch {step} training loss: {float(total_loss):.4f}, ")
-        #
-        #     for (x_batch_val, true_gating) in alarm_gating_val_dataset:
-        #         val_loss_value = self._alarm_gating_validation_step(x_batch_val, true_gating, model,
-        #                                                             gating_val_loss, gating_val_metric)
-        #         epoch_val_loss.append(float(val_loss_value))
-        #         val_error_metric = gating_val_metric.result()
-        #         epoch_val_metric.append(val_error_metric)
-        #         gating_val_metric.reset_states()
-        #
-        #     vprint(self.verbose, f"Epoch loss [train: {np.mean(epoch_train_loss):.4f}, "
-        #                          f"val: {np.mean(epoch_val_loss):.4f}] "
-        #                          f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
-        #                          f"val: {np.mean(epoch_val_metric):.4f}]")
-        #     if alarm_gating_decay_after_epochs is not None:
-        #         vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
-        #                "\nReduced learning rate!\n")
 
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
 

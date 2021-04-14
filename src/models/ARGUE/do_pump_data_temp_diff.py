@@ -24,8 +24,8 @@ if __name__ == "__main__":
     size = get_dataset_purpose_as_str(debugging)
     path = get_data_path() / "ssv_feedwater_pump" / f"data_pump_30_{size}_cleaned.csv"
     df_raw = get_local_data(path)
-    # df_raw = df_raw[["effect_pump_30_MW", "flow_after_pump", "temp_after_pump", "temp_slipring_water_suction_side",
-    #                  "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
+    df_raw = df_raw[["effect_pump_30_MW", "flow_after_pump", "temp_after_pump", "temp_slipring_water_suction_side",
+                     "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
     # form train and test sets
     df_train = df_raw.loc[:"2020-09-24 23:59:59"]
     df_test = df_raw.loc["2020-09-25":]
@@ -55,17 +55,17 @@ if __name__ == "__main__":
                           all_activations="tanh",
                           use_encoder_activations_in_alarm=True)
         model.fit(df_train.drop(columns=["class"]), df_train["class"],
-                  epochs=None, autoencoder_epochs=20, alarm_epochs=20, gating_epochs=20,
+                  epochs=None, autoencoder_epochs=60, alarm_epochs=20, gating_epochs=2,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=40,
                   alarm_gating_decay_after_epochs=20,
                   decay_rate=0.7,
                   validation_split=0.15, n_noise_samples=None, noise_stdev=1, noise_stdevs_away=3)
-        model.save(model_path)
+        # model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
-    df_train_sanity_check = df_train.drop(columns=["class"]).sample(frac=0.003).sort_index()
+    df_train_sanity_check = df_train.drop(columns=["class"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle("Sanity check")
     plt.show()
