@@ -12,6 +12,7 @@ from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from tensorflow.python.keras.engine.functional import Functional
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from scipy.special import softmax
 
 from src.models.ARGUE.utils import *
@@ -25,6 +26,8 @@ plt.style.use('seaborn')
 #  Required:
 #  - make plotting features
 #     - learning curves
+#  - make AUC evaluation
+#  - make alarm and gating train together
 #  Nice to have:
 #  - a clustering method could be standard partitioning method, if no class vector is given
 #  - make data handling more clean (maybe make a class for handling this)
@@ -32,13 +35,11 @@ plt.style.use('seaborn')
 #  - class ARGUEPrinter that takes an ARGUE obj and prints nicely readable output from it
 #  - more realistic anomalies for the noise counter examples
 #  - restore best weights
-#  - learning rate schedule
 #  - early stopping
 #  Experimental:
 #  - try separate optimizers and loss for the autoencoder pairs
 #  - could the raw alarm probabilities be used without the gating if we simply take the minimum probability over all
 #    the models for each datapoint?
-#  - connect alarm to encoder
 #  - tuning of false positives in the alarm and gating networks
 
 class ARGUE:
@@ -71,12 +72,15 @@ class ARGUE:
         outputs = decoder.keras_model(x)
         return Model(inputs, outputs, name=f"autoencoder_{decoder_number}")
 
-    def _connect_alarm_pair(self, name):
+    def _connect_alarm_pair(self, name, use_encoder: bool = False):
         decoder = self.decoder_dict[name]
         decoder_number = decoder.name[-1]
         inputs = self.encoder.keras_model.input
         x = self.encoder.keras_model(inputs)
         x = decoder.activation_model(x)
+        if use_encoder:
+            y = self.encoder.activation_model(inputs)
+            x = tf.keras.layers.concatenate([x, y])
         outputs = self.alarm.keras_model(x)
         return Model(inputs, outputs, name=f"input_to_alarm_{decoder_number}")
 
@@ -91,8 +95,12 @@ class ARGUE:
             self.encoder.keras_model.trainable = False
             for name, network_object in self.decoder_dict.items():
                 network_object.keras_model.trainable = False
-        if submodel == "alarm":
+        elif submodel == "alarm":
             self.alarm.keras_model.trainable = False
+        elif submodel == "gating":
+            self.gating.keras_model.trainable = False
+        else:
+            pass
 
     @staticmethod
     def _autoencoder_step(x, model, loss, optimizer, metric, training: bool):
@@ -114,7 +122,8 @@ class ARGUE:
                     decoders_activation: str = "tanh",
                     alarm_activation: str = "tanh",
                     gating_activation: str = "tanh",
-                    all_activations: Optional[str] = None):
+                    all_activations: Optional[str] = None,
+                    use_encoder_activations_in_alarm: bool = False):
 
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
@@ -133,7 +142,10 @@ class ARGUE:
                                                            units_in_layers=encoder_hidden_layers,
                                                            activation=encoder_activation)
         # build alarm network
-        self.alarm = Network(name="alarm").build_model(Input(shape=(self.decoder_activation_dim,)),
+        alarm_input_dim = self.decoder_activation_dim
+        if use_encoder_activations_in_alarm:
+            alarm_input_dim += self.encoder_activation_dim
+        self.alarm = Network(name="alarm").build_model(Input(shape=(alarm_input_dim,)),
                                                        Dense(1, "sigmoid"),
                                                        units_in_layers=alarm_hidden_layers,
                                                        activation=alarm_activation)
@@ -149,7 +161,7 @@ class ARGUE:
             decoder_name = f"decoder_{i}"
             self.decoder_dict[decoder_name] = \
                 Network(name=decoder_name).build_model(Input(shape=(self.latent_dim,)),
-                                                       Dense(self.input_dim),
+                                                       Dense(self.input_dim, "sigmoid"),
                                                        units_in_layers=decoders_hidden_layers,
                                                        activation=decoders_activation)
 
@@ -157,8 +169,8 @@ class ARGUE:
             self.autoencoder_dict[f"autoencoder_{i}"] = self._connect_autoencoder_pair(decoder_name)
 
             # connect encoder with alarm model through each decoder/expert network
-            # self.input_to_alarm_dict[f"input_to_alarm_{i}"] = self._connect_alarm_pair(decoder_name)
-            alarm_outputs.append(self._connect_alarm_pair(decoder_name).output)
+            alarm_outputs.append(self._connect_alarm_pair(decoder_name,
+                                                          use_encoder_activations_in_alarm).output)
 
         # alarm_outputs = [alarm_path.output for alarm_path in self.input_to_alarm_dict.values()]
         self.input_to_alarm = Model(inputs=self.encoder.keras_model.input,
@@ -201,6 +213,9 @@ class ARGUE:
             n_noise_samples: Optional[int] = None,
             noise_stdevs_away: float = 3.0,
             noise_stdev: float = 1.0,
+            autoencoder_decay_after_epochs: Optional[int] = None,
+            alarm_gating_decay_after_epochs: Optional[int] = None,
+            decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam"):
 
         autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
@@ -272,13 +287,21 @@ class ARGUE:
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
         ae_optimizer = tf.keras.optimizers.get(optimizer)
-        ae_train_loss = tf.losses.MeanSquaredError()
+        if autoencoder_decay_after_epochs is not None:
+            decay_steps = alarm_gating_batch_size * autoencoder_decay_after_epochs * self.number_of_decoders
+            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001,
+                                                                         decay_steps=decay_steps,
+                                                                         decay_rate=decay_rate)
+            ae_optimizer.__init__(learning_rate=lr_schedule)
+        # ae_train_loss = tf.losses.MeanSquaredError()
+        # ae_val_loss = tf.losses.MeanSquaredError()
+        ae_train_loss = tf.losses.BinaryCrossentropy()
+        ae_val_loss = tf.losses.BinaryCrossentropy()
         ae_train_metric = tf.metrics.MeanAbsoluteError()
-        ae_val_loss = tf.losses.MeanSquaredError()
         ae_val_metric = tf.metrics.MeanAbsoluteError()
 
         # train loop
-        for epoch in range(autoencoder_epochs):
+        for epoch in range(1, autoencoder_epochs+1):
             vprint(self.verbose, f"\n>> Epoch {epoch} - autoencoder")
             total_train_loss = []
             total_train_metric = []
@@ -343,11 +366,21 @@ class ARGUE:
                                  f"val: {np.mean(total_val_loss):.4f}] "
                                  f"| Average model MAE [train: {np.mean(total_train_metric):.4f}, "
                                  f"val: {np.mean(total_val_metric):.4f}]")
+            if autoencoder_decay_after_epochs is not None:
+                vprint(self.verbose and epoch % autoencoder_decay_after_epochs == 0,
+                       "\nReduced learning rate!\n")
+
         self._make_non_trainable("autoencoders")
 
         # train alarm network
         vprint(self.verbose, "\n\n=== Phase 2: training alarm network ===")
         alarm_optimizer = tf.keras.optimizers.get(optimizer)
+        if alarm_gating_decay_after_epochs is not None:
+            decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
+            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
+                                                                         decay_steps=decay_steps,
+                                                                         decay_rate=decay_rate)
+            alarm_optimizer.__init__(learning_rate=lr_schedule)
         alarm_train_loss = tf.losses.BinaryCrossentropy()
         alarm_val_loss = tf.losses.BinaryCrossentropy()
         alarm_train_metric = tf.metrics.BinaryAccuracy()
@@ -370,7 +403,7 @@ class ARGUE:
             alarm_train_metric.update_state(true_train_alarm, predicted_alarm)
             return train_loss_value
 
-        for epoch in range(alarm_epochs):
+        for epoch in range(1, alarm_epochs + 1):
             vprint(self.verbose, f"\n>> Epoch {epoch} - alarm")
             epoch_train_loss = []
             epoch_train_metric = []
@@ -404,12 +437,21 @@ class ARGUE:
                                  f"val: {np.mean(epoch_val_loss):.4f}] "
                                  f"| Accuracy [train: {np.mean(epoch_train_metric):.4f}, "
                                  f"val: {np.mean(epoch_val_metric):.4f}]")
+            if alarm_gating_decay_after_epochs is not None:
+                vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
+                       "\nReduced learning rate!\n")
         self._make_non_trainable("alarm")
 
         # train gating network
         vprint(self.verbose, "\n\n=== Phase 3: training gating network ===")
 
         gating_optimizer = tf.keras.optimizers.get(optimizer)
+        if alarm_gating_decay_after_epochs is not None:
+            decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
+            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
+                                                                         decay_steps=decay_steps,
+                                                                         decay_rate=decay_rate)
+            gating_optimizer.__init__(learning_rate=lr_schedule)
         gating_train_loss = tf.losses.CategoricalCrossentropy()
         gating_train_metric = tf.metrics.CategoricalAccuracy()
         gating_val_loss = tf.losses.CategoricalCrossentropy()
@@ -430,7 +472,7 @@ class ARGUE:
             gating_train_metric.update_state(true_gating, predicted_train_gating)
             return train_loss_value
 
-        for epoch in range(gating_epochs):
+        for epoch in range(1, gating_epochs + 1):
             vprint(self.verbose, f"\n>> Epoch {epoch} - gating")
             epoch_train_loss = []
             epoch_train_metric = []
@@ -458,6 +500,9 @@ class ARGUE:
                                  f"val: {np.mean(epoch_val_loss):.4f}] "
                                  f"| Categorical accuracy [train: {np.mean(epoch_train_metric):.4f} "
                                  f"val: {np.mean(epoch_val_metric):.4f}]")
+            if alarm_gating_decay_after_epochs is not None:
+                vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
+                       "\nReduced learning rate!\n")
 
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
 
@@ -477,22 +522,34 @@ class ARGUE:
         return self.input_to_gating.predict(x).reshape((-1, self.number_of_decoders + 1))
 
     def predict_alarm_probabilities(self, x: DataFrame):
-        # alarm_vector = [model.predict(x) for _, model in self.input_to_alarm_dict.items()]
-        # alarm_vector = np.array(alarm_vector).reshape((self.number_of_decoders, -1)).transpose()
         alarm_vector = self.input_to_alarm.predict(x)
         alarm_vector = np.stack(alarm_vector).reshape((self.number_of_decoders, -1))
         return alarm_vector
 
     def predict_plot_anomalies(self,
                                x,
-                               index: Optional[Collection] = None,
                                true_classes: Optional[List[int]] = None,
-                               moving_average_window: Optional[int] = 80,
+                               window_length: Optional[Union[int, List[int]]] = None,
                                **kwargs):
-        df_preds = pd.DataFrame(self.predict(x), index, columns=["Anomaly probability"])
-        if moving_average_window is not None:
-            df_preds[f"{moving_average_window} sample moving average"] = \
-                df_preds.rolling(window=moving_average_window).mean()
+        df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
+        if x.index is not None:
+            df_preds.index = x.index
+
+        if window_length is not None:
+            window_length = [window_length] if type(window_length) != list else window_length
+            fig, ax = plt.subplots(1, 1)
+            ax.plot(df_preds, label="Anomaly probability", alpha=0.6)
+            ax.xaxis.set_major_locator(ticker.LinearLocator(numticks=8))
+            plt.xticks(rotation=15)
+
+            for window in window_length:
+                df_MA = df_preds.rolling(window=window).mean()
+                col_name = f"{window} sample moving average"
+                df_MA.columns.values[0] = col_name
+                ax.plot(df_MA, label=col_name)
+            plt.legend()
+            return fig, ax
+
         if true_classes:
             df_preds["class"] = true_classes
 
