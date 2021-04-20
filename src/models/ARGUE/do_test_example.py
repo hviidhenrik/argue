@@ -15,8 +15,7 @@ if __name__ == "__main__":
     df.columns = ["x1", "x2", "x3"]
     df["class"] = make_class_labels(classes=3, N=N)
 
-    import tensorflow as tf
-    foo = tf.keras.optimizers.Adam()
+
 
     # scale it
     scaler = StandardScaler()

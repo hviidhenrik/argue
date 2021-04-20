@@ -42,3 +42,14 @@ class Network:
         self.keras_model = tf.keras.models.load_model(path / "keras_model", compile=False)
         self.activation_model = tf.keras.models.load_model(path / "activation_model", compile=False)
         return self.keras_model, self.activation_model
+
+
+class OnesLayer(tf.keras.layers.Layer):
+
+    def __init__(self):
+        super(OnesLayer, self).__init__()
+        # self.shape = shape
+        # self.ones_vector = tf.ones(shape=shape)
+
+    def call(self, inputs):
+        return tf.Variable(tf.ones(shape=(1, ), dtype="float32"), shape=tf.TensorShape([None, 1]))

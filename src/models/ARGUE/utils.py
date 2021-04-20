@@ -61,18 +61,35 @@ def partition_in_quantiles(x, column: str, quantiles: List[float] = None):
         quantiles = [0, 0.25, 0.5, 0.75, 1.]
     bins = pd.qcut(x[column], quantiles, labels=False)
     x_out = x.copy()
-    x_out["class"] = bins + 1  # add one since the classes to ARGUE must start in 1
+    x_out["partition"] = bins + 1  # add one since the partitions to ARGUE must start in 1
     return x_out
 
 
 def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None,
                            n_noise_samples: Optional[int] = None,
                            stdev: float = 1, stdevs_away: float = 3):
+    input_dim = pd.DataFrame(x).shape[1]
+    # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
+    if n_noise_samples == 0:
+        return pd.DataFrame(np.random.normal(size=(1, input_dim)), columns=x.columns)
+    N = x.shape[0] if n_noise_samples is None else n_noise_samples
+    noise = np.random.normal(0.5, 1, size=(N, input_dim))
+    df_noise = pd.DataFrame((noise), columns=x.columns)
+    return df_noise
+
+
+def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = None,
+                           n_noise_samples: Optional[int] = None,
+                           stdev: float = 1, stdevs_away: float = 3):
+    input_dim = pd.DataFrame(x).shape[1]
+
+    # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
+    if n_noise_samples == 0:
+        return pd.DataFrame(np.random.normal(size=(1, input_dim)), columns=x.columns)
 
     quantiles = [0.025, 0.975] if quantiles is None else quantiles
     N = x.shape[0] // 2 if n_noise_samples is None else n_noise_samples // 2
     qs = x.quantile(quantiles)
-    input_dim = pd.DataFrame(x).shape[1]
     noise_below = np.random.normal(qs.iloc[0] - stdev * stdevs_away, stdev, size=(N, input_dim))
     noise_above = np.random.normal(qs.iloc[1] + stdev * stdevs_away, stdev, size=(N, input_dim))
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
