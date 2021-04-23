@@ -8,6 +8,21 @@ from src.models.ARGUE.utils import *
 from src.config.definitions import *
 
 
+def network_block(inputs, units_in_layers: List[int], activation="selu"):
+    """
+    Helper function to create encoder/decoder networks in a clean and easy way.
+
+    :param inputs: input tensor; tf.keras.layers.Input
+    :param units_in_layers: a list specifying number of units in each layer; List[int]
+    :param activation: activation function to use; str
+    :return:
+    """
+    x = inputs
+    for units in units_in_layers:
+        x = Dense(units, activation=activation)(x)
+    return x
+
+
 class Network:
     def __init__(self, name: str):
         self.name = name
@@ -17,16 +32,29 @@ class Network:
     def build_model(self,
                     input_layer: tf.keras.layers.Layer,
                     output_layer: tf.keras.layers.Layer,
-                    **kwargs):
-        inputs = input_layer
-        network = network_block(inputs, **kwargs)
-        outputs = output_layer(network)
-        self.keras_model = Model(inputs=inputs, outputs=outputs, name=self.name)
+                    units_in_layers: List[int],
+                    activation="elu",
+                    dropout_frac: Optional[float] = None,
+                    keep_output_layer_activations: bool = False):
+        x = input_layer
+        for units in units_in_layers:
+            x = Dense(units, activation=activation)(x)
+            if dropout_frac is not None:
+                x = tf.keras.layers.Dropout(dropout_frac)(x)
+        outputs = output_layer(x)
+        self.keras_model = Model(inputs=input_layer, outputs=outputs, name=self.name)
 
         # make activation model here
-        activation_tensor = extract_activations(self.keras_model, self.name + "_activations")
+        activation_tensor = extract_activations(self.keras_model, self.name + "_activations",
+                                                keep_output_layer=keep_output_layer_activations)
         self.activation_model = Model(inputs=self.keras_model.input, outputs=activation_tensor)
         return self
+
+    def summary(self, model: str = "keras_model"):
+        if "keras" in model:
+            self.keras_model.summary()
+        else:
+            self.activation_model.summary()
 
     def get_hidden_activations(self, x):
         return self.activation_model.predict(x)
@@ -44,12 +72,11 @@ class Network:
         return self.keras_model, self.activation_model
 
 
-class OnesLayer(tf.keras.layers.Layer):
-
-    def __init__(self):
-        super(OnesLayer, self).__init__()
-        # self.shape = shape
-        # self.ones_vector = tf.ones(shape=shape)
-
-    def call(self, inputs):
-        return tf.Variable(tf.ones(shape=(1, ), dtype="float32"), shape=tf.TensorShape([None, 1]))
+if __name__ == "__main__":
+    import tensorflow as tf
+    FFN = Network(name="ffn").build_model(input_layer=tf.keras.layers.Input((3, )),
+                                          output_layer=tf.keras.layers.Dense(3, "sigmoid"),
+                                          units_in_layers=[10, 8, 6],
+                                          activation="tanh",
+                                          dropout_frac=0.1)
+    FFN.summary("keras")

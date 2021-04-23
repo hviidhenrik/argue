@@ -28,7 +28,8 @@ if __name__ == "__main__":
                      "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
     # form train and test sets
     df_train = pd.concat([df_raw.loc[:"2019-12-30 23:59:59"],
-                          df_raw.loc["2020-02-05 23:59:59":"2020-09-14 23:59:59"]])
+                          df_raw.loc["2020-02-05 23:59:59":
+                                     "2020-09-14 23:59:59"]])
     df_test = df_raw.loc["2020-09-15":]
     df_test.plot(subplots=True, rot=5)
     plt.suptitle("SSV Feedwater pump 30 temperature tags")
@@ -38,8 +39,7 @@ if __name__ == "__main__":
     scaler = MinMaxScaler().fit(df_train)
     df_train = pd.DataFrame(scaler.transform(df_train), columns=df_train.columns, index=df_train.index)
     df_test = pd.DataFrame(scaler.transform(df_test), columns=df_test.columns, index=df_test.index)
-    df_train = partition_in_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 0.2, 0.3, 0.4, 0.5, 0.6,
-                                                                                0.7, 0.8, 0.9, 1])
+    df_train = partition_by_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 0.5, 1])
 
     # Train ARGUE
     # USE_SAVED_MODEL = True
@@ -49,18 +49,23 @@ if __name__ == "__main__":
         model = ARGUE().load(model_path)
     else:
         # call and fit model
-        batch_size = 256
-        model = ARGUE(input_dim=len(df_train.columns[:-1]),
+        model = ARGUE(input_dim=len(df_train.columns[:-1]),  # TODO revise input dims with partition etc to be easier
                       number_of_decoders=len(df_train["partition"].unique()),
-                      latent_dim=2, verbose=1)
+                      latent_dim=2, verbose=2)
         model.build_model(encoder_hidden_layers=[15, 10, 5, 4, 3],
                           decoders_hidden_layers=[3, 4, 5, 10, 15],
                           alarm_hidden_layers=[40, 30, 20, 10],
                           gating_hidden_layers=[20, 10, 5],
-                          all_activations="relu",
-                          use_encoder_activations_in_alarm=True)
+                          all_activations="tanh",
+                          use_encoder_activations_in_alarm=True,
+                          use_latent_activations_in_encoder_activations=True,
+                          use_decoder_outputs_in_decoder_activations=True,
+                          encoder_dropout_frac=0.1,
+                          decoders_dropout_frac=0.1,
+                          alarm_dropout_frac=0.1,
+                          gating_dropout_frac=0.1)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=300, alarm_gating_epochs=100,
+                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=5,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=None,

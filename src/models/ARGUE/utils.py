@@ -11,7 +11,7 @@ from tensorflow.keras.layers import Dense
 
 def extract_activations(network: tf.keras.models.Model,
                         target_name: str,
-                        discard_output_layer: bool = True) -> tf.keras.layers.Layer:
+                        keep_output_layer: bool = False) -> tf.keras.layers.Layer:
     """
     Get the activation layers of the defined model
 
@@ -25,38 +25,26 @@ def extract_activations(network: tf.keras.models.Model,
         if isinstance(layer, tf.keras.layers.Dense):
             hidden_dense_layers.append(layer)
 
-    if discard_output_layer:
+    if not keep_output_layer:
         hidden_dense_layers.pop(-1)
 
     all_activations = []
     for layer_number, layer in enumerate(hidden_dense_layers):
-        flattened_layer = tf.keras.layers.Flatten(name=f"{target_name}_{layer_number}")
-        all_activations.append(flattened_layer(layer.output))
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            flattened_layer = tf.keras.layers.Flatten(name=f"{target_name}_{layer_number}")
+            all_activations.append(flattened_layer(layer.output))
+        else:
+            all_activations.append(layer.output)
     all_activations = tf.keras.layers.Concatenate(name=target_name)(all_activations)
     return all_activations
 
 
-def network_block(inputs, units_in_layers: List[int], activation="selu"):
-    """
-    Helper function to create encoder/decoder networks in a clean and easy way.
-
-    :param inputs: input tensor; tf.keras.layers.Input
-    :param units_in_layers: a list specifying number of units in each layer; List[int]
-    :param activation: activation function to use; str
-    :return:
-    """
-    x = inputs
-    for units in units_in_layers:
-        x = Dense(units, activation=activation)(x)
-    return x
-
-
-def vprint(verbose: Union[bool, int], str_to_print: str):
+def vprint(verbose: Union[bool, int], str_to_print: str, **kwargs):
     if verbose:
-        print(str_to_print)
+        print(str_to_print, **kwargs)
 
 
-def partition_in_quantiles(x, column: str, quantiles: List[float] = None):
+def partition_by_quantiles(x, column: str, quantiles: List[float] = None):
     if quantiles is None:
         quantiles = [0, 0.25, 0.5, 0.75, 1.]
     bins = pd.qcut(x[column], quantiles, labels=False)
@@ -65,6 +53,11 @@ def partition_in_quantiles(x, column: str, quantiles: List[float] = None):
     return x_out
 
 
+def partition_by_class():
+    pass
+
+
+# note authors' original noise generator
 def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None,
                            n_noise_samples: Optional[int] = None,
                            stdev: float = 1, stdevs_away: float = 3):
@@ -78,6 +71,7 @@ def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None
     return df_noise
 
 
+# note: my modified noise generator
 def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = None,
                            n_noise_samples: Optional[int] = None,
                            stdev: float = 1, stdevs_away: float = 3):

@@ -19,10 +19,7 @@ def get_local_data(filename: Union[str, WindowsPath] = None) -> DataFrame:
     return df
 
 
-def save_local_data(
-    df_to_save: DataFrame,
-    filename: Union[str, WindowsPath] = None
-) -> None:
+def save_local_data(df_to_save: DataFrame, filename: Union[str, WindowsPath] = None, index=False) -> None:
     """
     Takes a dataframe and saves it to a local file. By default will save to a file with name:
     "data_pump_{pump_number}_{dataset_size}{default_filename_addendum}.csv"
@@ -31,12 +28,12 @@ def save_local_data(
     :param filename: optional filename for the file to save
     """
     filename = filename if str(filename).endswith(".csv") else filename.join(".csv")
-    df_to_save.to_csv(filename)
+    df_to_save.to_csv(filename, index=index)
     print(f"Data saved locally as {filename}")
 
 
 def make_and_save_debugging_dataset(
-    df_large, size: int = 800, filename: Union[str, WindowsPath] = None
+    df_large, size: int = 800, filename: Union[str, WindowsPath] = None, index=None,
 ) -> None:
     """
     Takes a large dataset and automatically creates a smaller one, useful for testing and debugging.
@@ -52,7 +49,7 @@ def make_and_save_debugging_dataset(
     assert filename is not None, "No filename provided!"
     df_small, _ = train_test_split(df_large, train_size=size)
     df_small = df_small.sort_index()
-    save_local_data(df_small, filename=filename)
+    save_local_data(df_small, filename, index)
 
 
 def get_dataset_purpose_as_str(debugging: bool = None) -> str:

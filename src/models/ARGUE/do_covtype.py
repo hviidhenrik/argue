@@ -18,47 +18,65 @@ from src.data.data_utils import *
 
 if __name__ == "__main__":
     # load dataset
-    debugging = True
-    # debugging = False
+    # debugging = True
+    debugging = False
     size = get_dataset_purpose_as_str(debugging)
-    path = get_data_path() / "creditcard_fraud"
-    x_train = pd.read_csv(path / f"dataset_nominal_{size}.csv")
-    x_test_anomaly = pd.read_csv(path / f"dataset_anomalies.csv")
+    covtype = "A"
+    # covtype = "B"
+    path = get_data_path() / "covtype"
+    x_train = pd.read_csv(path / f"data_covtype_normal_{covtype}_{size}.csv", index_col=False)
+    x_test_anomaly = pd.read_csv(path / f"data_covtype_anomaly_{covtype}_{size}.csv")
+    x_train, x_test_normal = train_test_split(x_train, test_size=x_test_anomaly.shape[0])
 
     # scale the data and partition it into partitions
-    x_train, x_test_normal = train_test_split(x_train, test_size=x_test_anomaly.shape[0])
-    x_train = x_train.drop(columns=["Class"])
+    x_test_normal["anomaly"] = 0
+    x_test_anomaly["anomaly"] = 1
     x_test = pd.concat([x_test_normal, x_test_anomaly]).reset_index(drop=True)
-    y_test = x_test["Class"]
-    x_test = x_test.drop(columns=["Class"])
+
+    # partition by feature classes
+    y_test = x_test["anomaly"]
+    x_test = x_test.drop(columns=["anomaly"])
+    _, x_test_debug, _, y_test_debug = train_test_split(x_test, y_test, test_size=10)
+
+    x_test_debug_partitions = x_test_debug["Cover_Type"]
+    x_test = x_test.drop(columns=["Cover_Type"])
+    x_test_debug = x_test_debug.drop(columns=["Cover_Type"])
+    x_train_partitions = x_train["Cover_Type"]
+    x_train = x_train.drop(columns=["Cover_Type"])
 
     scaler = MinMaxScaler().fit(x_train)
     x_train = pd.DataFrame(scaler.transform(x_train), columns=x_train.columns, index=x_train.index)
     x_test = pd.DataFrame(scaler.transform(x_test), columns=x_test.columns, index=x_test.index)
-    x_train = partition_by_quantiles(x_train, "Amount", quantiles=[0, 0.5, 1])
 
     # Train ARGUE
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
-    model_path = get_model_archive_path() / "ARGUE_creditcard"
+    model_path = get_model_archive_path() / "ARGUE_covtype"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
     else:
         # call and fit model
-        model = ARGUE(input_dim=len(x_train.columns[:-1]),  # -1 here because we dont want the "partition" column
-                      number_of_decoders=len(x_train["partition"].unique()),
-                      latent_dim=5, verbose=2)
-        model.build_model(encoder_hidden_layers=[50, 40, 30, 20, 15],
-                          decoders_hidden_layers=[15, 20, 30, 40, 50],
+        model = ARGUE(input_dim=len(x_train.columns),  # -1 here because we dont want the "partition" column
+                      number_of_decoders=len(x_train_partitions.unique()),
+                      latent_dim=15, verbose=2)
+        model.build_model(encoder_hidden_layers=[90, 75, 60, 45, 25, 15],
+                          decoders_hidden_layers=[15, 25, 45, 60, 75, 90],
                           alarm_hidden_layers=[1000, 500, 200, 75],
                           gating_hidden_layers=[1000, 500, 200, 75],
                           all_activations="relu",
-                          use_encoder_activations_in_alarm=True)
-        model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=50, alarm_gating_epochs=50,
-                  batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
+                          use_encoder_activations_in_alarm=True,
+                          use_latent_activations_in_encoder_activations=True,
+                          use_decoder_outputs_in_decoder_activations=False,
+                          encoder_dropout_frac=0.1,
+                          decoders_dropout_frac=0.1,
+                          # alarm_dropout_frac=0.1,
+                          # gating_dropout_frac=0.1
+                          )
+        model.fit(x_train, x_train_partitions,
+                  epochs=None, autoencoder_epochs=2, alarm_gating_epochs=0,
+                  batch_size=None, autoencoder_batch_size=128, alarm_gating_batch_size=1024,
                   optimizer="adam",
-                  autoencoder_decay_after_epochs=None,
+                  autoencoder_decay_after_epochs=25,
                   alarm_gating_decay_after_epochs=None,
                   decay_rate=0.5, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
@@ -66,7 +84,7 @@ if __name__ == "__main__":
         # model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
-    x_train_sanity_check = x_train.drop(columns=["partition"]).sample(300).sort_index()
+    # x_train_sanity_check = x_train.drop(columns=["Cover_Type"]).sample(300).sort_index()
     # model.predict_plot_reconstructions(x_train_sanity_check)
     # plt.suptitle("Sanity check")
     # plt.show()
@@ -90,11 +108,11 @@ if __name__ == "__main__":
     print(f"ROC AUC: {roc_auc_score(y_test, y_pred):.4f}")
 
     # for debugging
-    _, x_test, _, y_test = train_test_split(x_test, y_test, test_size=10)
-    y_pred = model.predict(x_test)
-    alarm = model.predict_alarm_probabilities(x_test)
-    gating = model.predict_gating_weights(x_test)
+    y_pred = model.predict(x_test_debug)
+    alarm = model.predict_alarm_probabilities(x_test_debug)
+    gating = model.predict_gating_weights(x_test_debug)
     print("Alarm probs: \n", np.round(alarm, 4))
     print("Gating weights: \n", np.round(gating, 4))
+    print("True partitions: \n", np.array(x_test_debug_partitions))
     print("Final predictions: \n", np.round(y_pred, 4))
-    print("True alarm labels: \n", np.round(y_test, 4))
+    print("True alarm labels: \n", np.array(y_test_debug))
