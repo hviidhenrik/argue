@@ -17,7 +17,7 @@ import matplotlib.ticker as ticker
 from scipy.special import softmax
 
 from src.models.ARGUE.utils import *
-from src.models.ARGUE.network_utils import Network
+from src.models.ARGUE.network_utils import *
 from src.config.definitions import *
 
 plt.style.use('seaborn')
@@ -59,7 +59,6 @@ class ARGUE:
         self.latent_dim = latent_dim
         self.encoder = None
         self.decoder_dict = {}
-        self.autoencoder_dict = {}
         self.alarm = None
         self.gating = None
         self.encoder_activation_dim = None
@@ -144,7 +143,7 @@ class ARGUE:
         alarm_metric.update_state(true_alarm, predicted_alarm)
         gating_metric.update_state(true_gating, predicted_gating)
         final_metric.update_state(true_final, predicted_final)
-        return alarm_loss_value, gating_loss_value, final_loss_value
+        return alarm_loss_value, gating_loss_value, final_loss_value, true_alarm, predicted_alarm
 
     @staticmethod
     def _init_loss_functions():
@@ -161,6 +160,18 @@ class ARGUE:
         gating_metric = tf.metrics.MeanAbsoluteError()
         final_metric = tf.metrics.MeanAbsoluteError()
         return ae_metric, alarm_metric, gating_metric, final_metric
+
+    def _unfreeze_partition_decoder(self, partition):
+        self.input_to_decoders.trainable = False
+        self.encoder.keras_model.trainable = True
+        decoder_to_train = int(partition[10:])
+        decoder_model = self.input_to_decoders.layers[decoder_to_train + 1]
+        decoder_name = decoder_model.name
+        if not "decoder" in decoder_name:
+            raise Exception(f"Wrong model name: \"{decoder_name}\" detected in decoder training! "
+                            f"Should contain \"decoder_<k>\"")
+        decoder_model.trainable = True
+        return decoder_model.trainable_variables
 
     def build_model(self,
                     encoder_hidden_layers: List[int] = [10, 8, 5],
@@ -232,7 +243,6 @@ class ARGUE:
                                                        keep_output_layer_activations=use_decoder_outputs_in_decoder_activations)
 
             # connect common encoder with each decoder and store in a dictionary
-            self.autoencoder_dict[f"autoencoder_{i}"] = self._connect_autoencoder_pair(decoder_name)
             decoder_outputs.append(self._connect_autoencoder_pair(decoder_name).output)
             # connect encoder with alarm model through each decoder/expert network
             alarm_outputs.append(self._connect_alarm_pair(decoder_name,
@@ -240,6 +250,9 @@ class ARGUE:
 
         self.input_to_decoders = Model(inputs=self.encoder.keras_model.input,
                                        outputs=decoder_outputs)
+        self.input_to_decoders.trainable = False
+        self.encoder.keras_model.trainable = True
+
         self.input_to_alarm = Model(inputs=self.encoder.keras_model.input,
                                     outputs=alarm_outputs)
         self.input_to_gating = self._connect_gating()
@@ -249,7 +262,7 @@ class ARGUE:
                              f"  > Encoder activations: {self.encoder_activation_dim}\n"
                              f"  > Decoder activations: {self.decoder_activation_dim}\n"
                              f"  > Latent dimension: {self.latent_dim}\n"
-                             f"  > Number of decoders: {len(self.autoencoder_dict)}\n")
+                             f"  > Number of decoders: {self.number_of_decoders}\n")
         return self
 
     def fit(self,
@@ -265,8 +278,11 @@ class ARGUE:
             n_noise_samples: Optional[int] = None,
             noise_stdevs_away: float = 3.0,
             noise_stdev: float = 1.0,
+            ae_learning_rate: float = 0.0001,
+            alarm_gating_learning_rate: float = 0.0001,
             autoencoder_decay_after_epochs: Optional[int] = None,
-            alarm_gating_decay_after_epochs: Optional[int] = None,
+            alarm_decay_after_epochs: Optional[int] = None,
+            gating_decay_after_epochs: Optional[int] = None,
             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
             fp_penalty: float = 0,
@@ -352,10 +368,10 @@ class ARGUE:
         ae_optimizer = tf.keras.optimizers.get(optimizer)
         if autoencoder_decay_after_epochs is not None:
             decay_steps = alarm_gating_batch_size * autoencoder_decay_after_epochs * self.number_of_decoders
-            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.001,
-                                                                         decay_steps=decay_steps,
-                                                                         decay_rate=decay_rate)
-            ae_optimizer.__init__(learning_rate=lr_schedule)
+            ae_learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=ae_learning_rate,
+                                                                              decay_steps=decay_steps,
+                                                                              decay_rate=decay_rate)
+        ae_optimizer.__init__(learning_rate=ae_learning_rate)
 
         # TODO investigate what goes on in the autoencoder, why only model 1 seems to learn well and subsequent
         #  models dont. Also, convert code to one single model with N outputs instead of N models
@@ -364,12 +380,14 @@ class ARGUE:
             with tf.GradientTape() as tape:
                 predictions = ae_model(x_batch_train, training=True)
                 train_loss_value = ae_loss_fn(x_batch_train, predictions)
-            gradients = tape.gradient(train_loss_value, ae_model.trainable_variables)
-            ae_optimizer.apply_gradients(zip(gradients, ae_model.trainable_variables))
+            gradients = tape.gradient(train_loss_value, encoder_network_variables + decoder_variables)
+            ae_optimizer.apply_gradients(zip(gradients, encoder_network_variables + decoder_variables))
             ae_metric_fn.update_state(x_batch_train, predictions)
             return train_loss_value
 
         # train loop
+        ae_model = self.input_to_decoders
+        encoder_network_variables = self.encoder.keras_model.trainable_variables
         for epoch in range(1, autoencoder_epochs + 1):
             epoch_start = time.time()
             vprint(self.verbose, f"\n>> Epoch {epoch} - autoencoder ")
@@ -379,20 +397,21 @@ class ARGUE:
             avg_ae_model_val_metric = []
 
             # weight update loop
-            for ae_model_name, ae_model in self.autoencoder_dict.items():
+            for partition, ae_train_dataset in autoencoder_train_dataset_dict.items():
+                ae_val_dataset = autoencoder_val_dataset_dict[partition]
+
                 epoch_train_loss = []
                 epoch_train_metric = []
                 epoch_val_loss = []
                 epoch_val_metric = []
-                vprint(self.verbose > 1, f"== Model: {ae_model_name}, training steps:")
+                vprint(self.verbose > 1, f"== Model: {partition[10:]}, training steps:")
 
                 # train loop:
                 # for each model, iterate over all its batches from its own dataset to update weights
                 # TODO in the future, if this doesnt work well, training should alternate between models,
                 #  one batch for each at a time
-
-                partition = ae_model_name[12:]
-                for step, x_batch_train in enumerate(autoencoder_train_dataset_dict[f"partition_{partition}"]):
+                for step, x_batch_train in enumerate(ae_train_dataset):
+                    decoder_variables = self._unfreeze_partition_decoder(partition)
                     ae_train_loss = _ae_train_step(x_batch_train)
                     error_metric = ae_metric_fn.result()
                     epoch_train_metric.append(error_metric)
@@ -405,7 +424,7 @@ class ARGUE:
                               f"MAE: {float(error_metric):.4f}")
 
                 # validation loop for the submodel
-                for x_batch_val in autoencoder_val_dataset_dict[f"partition_{partition}"]:
+                for x_batch_val in ae_val_dataset:
                     ae_loss_value = self._ae_validation_step(x_batch_val, ae_model, ae_loss_fn, ae_metric_fn)
                     epoch_val_loss.append(ae_loss_value)
 
@@ -414,14 +433,14 @@ class ARGUE:
                     epoch_val_metric.append(val_metric)
                     ae_metric_fn.reset_states()
 
-                vprint(self.verbose > 1, f"Model {ae_model_name[-1]} loss [train: {np.mean(epoch_train_loss):.4f}, "
-                                         f"val: {np.mean(epoch_val_loss):.4f}] "
-                                         f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
-                                         f"val: {np.mean(epoch_val_metric):.4f}]")
-                avg_ae_model_train_loss.append(np.mean(epoch_train_loss))
-                avg_ae_model_val_loss.append(np.mean(epoch_val_loss))
-                avg_ae_model_train_metric.append(np.mean(epoch_train_metric))
-                avg_ae_model_val_metric.append(np.mean(epoch_val_metric))
+                    vprint(self.verbose > 1, f"Model {partition[10:]} loss [train: {np.mean(epoch_train_loss):.4f}, "
+                                             f"val: {np.mean(epoch_val_loss):.4f}] "
+                                             f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
+                                             f"val: {np.mean(epoch_val_metric):.4f}]")
+                    avg_ae_model_train_loss.append(np.mean(epoch_train_loss))
+                    avg_ae_model_val_loss.append(np.mean(epoch_val_loss))
+                    avg_ae_model_train_metric.append(np.mean(epoch_train_metric))
+                    avg_ae_model_val_metric.append(np.mean(epoch_val_metric))
             vprint(self.verbose, f"--- Average epoch loss [train: {np.mean(avg_ae_model_train_loss):.4f}, "
                                  f"val: {np.mean(avg_ae_model_val_loss):.4f}] "
                                  f"| Average model MAE [train: {np.mean(avg_ae_model_train_metric):.4f}, "
@@ -438,14 +457,32 @@ class ARGUE:
         # train alarm network
         vprint(self.verbose, "\n\n=== Phase 2: training alarm & gating networks ===")
 
+        # TODO wrap optimizer init in functions
         # init optimizers
-        alarm_gating_optimizer = tf.keras.optimizers.get(optimizer)
-        if alarm_gating_decay_after_epochs is not None:
-            decay_steps = alarm_gating_batch_size * alarm_gating_decay_after_epochs
-            lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.0001,
-                                                                         decay_steps=decay_steps,
-                                                                         decay_rate=decay_rate)
-            alarm_gating_optimizer.__init__(learning_rate=lr_schedule)
+        alarm_optimizer = tf.keras.optimizers.get(optimizer)
+        if alarm_decay_after_epochs is not None:
+            decay_steps = alarm_gating_batch_size * alarm_decay_after_epochs
+            alarm_learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+                                                initial_learning_rate=alarm_gating_learning_rate,
+                                                decay_steps=decay_steps,
+                                                decay_rate=decay_rate)
+        else:
+            alarm_learning_rate = alarm_gating_learning_rate
+        alarm_optimizer.__init__(learning_rate=alarm_learning_rate)
+
+        gating_optimizer = tf.keras.optimizers.get(optimizer)
+        if gating_decay_after_epochs is not None:
+            decay_steps = alarm_gating_batch_size * gating_decay_after_epochs
+            gating_learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+                initial_learning_rate=alarm_gating_learning_rate,
+                decay_steps=decay_steps,
+                decay_rate=decay_rate)
+        else:
+            gating_learning_rate = alarm_gating_learning_rate
+        gating_optimizer.__init__(learning_rate=gating_learning_rate)
+
+        final_optimizer = tf.keras.optimizers.get(optimizer)
+        final_optimizer.__init__(learning_rate=alarm_gating_learning_rate)
 
         # training loop
         gating_model = self.input_to_gating
@@ -453,7 +490,7 @@ class ARGUE:
         gating_network_variables = self.gating.keras_model.trainable_variables
         alarm_network_variables = self.alarm.keras_model.trainable_variables
 
-        @tf.function
+        # @tf.function
         def _alarm_gating_train_step(x_batch_train, true_gating):
             true_alarm = 1 - true_gating[:, 1:]
             true_final = tf.cast(tf.reduce_min(true_alarm, axis=1), "float32")
@@ -463,24 +500,14 @@ class ARGUE:
                 predicted_alarm = tf.keras.layers.concatenate(alarm_model(x_batch_train, training=True))
                 alarm_loss_value = alarm_loss_fn(true_alarm, predicted_alarm)
             gradients = tape.gradient(alarm_loss_value, alarm_network_variables)
-            alarm_gating_optimizer.apply_gradients(zip(gradients, alarm_network_variables))
+            alarm_optimizer.apply_gradients(zip(gradients, alarm_network_variables))
 
             # update gating model
             with tf.GradientTape() as tape:
                 predicted_gating = gating_model(x_batch_train, training=True)
                 gating_loss_value = gating_loss_fn(true_gating, predicted_gating)
             gradients = tape.gradient(gating_loss_value, gating_network_variables)
-            alarm_gating_optimizer.apply_gradients(zip(gradients, gating_network_variables))
-
-            # # update final loss model
-            # with tf.GradientTape() as tape:
-            #     predicted_alarm = tf.keras.layers.concatenate(alarm_model(x_batch_train, training=True))
-            #     alarm_loss_value = alarm_loss_fn(true_alarm, predicted_alarm)
-            #     predicted_gating = gating_model(x_batch_train, training=True)
-            #     gating_loss_value = gating_loss_fn(true_gating, predicted_gating)
-            #     loss = alarm_loss_value + gating_loss_value
-            # gradients = tape.gradient(loss, alarm_network_variables + gating_network_variables)
-            # alarm_gating_optimizer.apply_gradients(zip(gradients, alarm_network_variables + gating_network_variables))
+            gating_optimizer.apply_gradients(zip(gradients, gating_network_variables))
 
             # update the whole model
             with tf.GradientTape() as tape:
@@ -504,7 +531,7 @@ class ARGUE:
                 final_loss_value = final_loss_fn(true_final, predicted_final) + \
                                    fp_penalty * false_positive_loss + fn_penalty * false_negative_loss
             gradients = tape.gradient(final_loss_value, alarm_network_variables + gating_network_variables)
-            alarm_gating_optimizer.apply_gradients(zip(gradients,
+            final_optimizer.apply_gradients(zip(gradients,
                                                        alarm_network_variables + gating_network_variables))
 
             alarm_metric_fn.update_state(true_alarm, predicted_alarm)
@@ -520,6 +547,7 @@ class ARGUE:
             alarm_epoch_train_metric = []
             alarm_epoch_val_loss = []
             alarm_epoch_val_metric = []
+            alarm_epoch_sparsity = []
             gating_epoch_train_loss = []
             gating_epoch_train_metric = []
             gating_epoch_val_loss = []
@@ -555,7 +583,7 @@ class ARGUE:
 
             # end of epoch validation loop
             for (x_batch_val, true_gating) in alarm_gating_val_dataset:
-                alarm_loss_value, gating_loss_value, final_loss_value = \
+                alarm_loss_value, gating_loss_value, final_loss_value, true_alarm, predicted_alarm = \
                     self._alarm_gating_validation_step(x_batch_val, true_gating, alarm_loss_fn,
                                                        gating_loss_fn, final_loss_fn, alarm_metric_fn,
                                                        gating_metric_fn, final_metric_fn)
@@ -566,6 +594,7 @@ class ARGUE:
                 alarm_epoch_val_metric.append(alarm_metric_fn.result())
                 gating_epoch_val_metric.append(gating_metric_fn.result())
                 final_epoch_val_metric.append(final_metric_fn.result())
+                alarm_epoch_sparsity.append(check_alarm_sparsity(true_alarm, predicted_alarm))
                 alarm_metric_fn.reset_states()
                 gating_metric_fn.reset_states()
                 final_metric_fn.reset_states()
@@ -573,7 +602,8 @@ class ARGUE:
             vprint(self.verbose, f"--- Alarm loss  [train: {np.mean(alarm_epoch_train_loss):.4f}, "
                                  f"val: {np.mean(alarm_epoch_val_loss):.4f}] "
                                  f"| MAE  [train: {np.mean(alarm_epoch_train_metric):.4f}, "
-                                 f"val: {np.mean(alarm_epoch_val_metric):.4f}]")
+                                 f"val: {np.mean(alarm_epoch_val_metric):.4f}, "
+                                 f"sparsity: {np.mean(alarm_epoch_sparsity):.4f}]")
             vprint(self.verbose, f"--- Gating loss [train: {np.mean(gating_epoch_train_loss):.4f}, "
                                  f"val: {np.mean(gating_epoch_val_loss):.4f}] "
                                  f"| MAE  [train: {np.mean(gating_epoch_train_metric):.4f}, "
@@ -583,9 +613,9 @@ class ARGUE:
                                  f"| MAE  [train: {np.mean(final_epoch_train_metric):.4f}, "
                                  f"val: {np.mean(final_epoch_val_metric):.4f}]"
                    )
-            if alarm_gating_decay_after_epochs is not None:
-                vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
-                       "\nReduced learning rate!\n")
+            # if alarm_gating_decay_after_epochs is not None:
+            #     vprint(self.verbose and epoch % alarm_gating_decay_after_epochs == 0,
+            #            "\nReduced learning rate!\n")
             epoch_end = time.time()
             epoch_time_elapsed = epoch_end - epoch_start
             vprint(self.verbose, f"--- Time elapsed: {epoch_time_elapsed:.2f} seconds")
@@ -664,7 +694,7 @@ class ARGUE:
         # that one's predictions/reconstructions
         best_decoder = self.predict_gating_weights(x)[:, 1:].argmax(axis=1)
         row_number = np.arange(best_decoder.shape[0])
-        reconstructions = np.array([model.predict(x) for _, model in self.autoencoder_dict.items()])
+        reconstructions = np.stack(self.input_to_decoders.predict(x), axis=0)
         final_reconstructions = reconstructions[best_decoder, row_number, :]
         final_reconstructions = pd.DataFrame(final_reconstructions,
                                              columns=x.columns,

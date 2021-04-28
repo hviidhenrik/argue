@@ -57,6 +57,11 @@ def partition_by_class():
     pass
 
 
+def check_alarm_sparsity(y_true, y_pred):
+    absolute_error = np.abs(np.sum(y_true, axis=1) - np.sum(y_pred, axis=1))
+    return np.mean(absolute_error)
+
+
 # note authors' original noise generator
 def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None,
                            n_noise_samples: Optional[int] = None,

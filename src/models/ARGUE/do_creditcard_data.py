@@ -18,8 +18,8 @@ from src.data.data_utils import *
 
 if __name__ == "__main__":
     # load dataset
-    debugging = True
-    # debugging = False
+    # debugging = True
+    debugging = False
     size = get_dataset_purpose_as_str(debugging)
     path = get_data_path() / "creditcard_fraud"
     x_train = pd.read_csv(path / f"dataset_nominal_{size}.csv")
@@ -47,15 +47,22 @@ if __name__ == "__main__":
         # call and fit model
         model = ARGUE(input_dim=len(x_train.columns[:-1]),  # -1 here because we dont want the "partition" column
                       number_of_decoders=len(x_train["partition"].unique()),
-                      latent_dim=5, verbose=2)
+                      latent_dim=5, verbose=1)
         model.build_model(encoder_hidden_layers=[50, 40, 30, 20, 15],
                           decoders_hidden_layers=[15, 20, 30, 40, 50],
                           alarm_hidden_layers=[1000, 500, 200, 75],
                           gating_hidden_layers=[1000, 500, 200, 75],
                           all_activations="relu",
-                          use_encoder_activations_in_alarm=True)
+                          use_encoder_activations_in_alarm=True,
+                          use_latent_activations_in_encoder_activations=True,
+                          use_decoder_outputs_in_decoder_activations=True,
+                          encoder_dropout_frac=0.1,
+                          decoders_dropout_frac=0.1,
+                          alarm_dropout_frac=0.1,
+                          gating_dropout_frac=0.1
+                          )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=50, alarm_gating_epochs=50,
+                  epochs=None, autoencoder_epochs=100, alarm_gating_epochs=100,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=None,

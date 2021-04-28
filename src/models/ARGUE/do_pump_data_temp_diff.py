@@ -1,12 +1,10 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
-import numpy as np
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+
+from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 from src.models.ARGUE.models import ARGUE
-from src.models.ARGUE.data_generation import *
 from src.models.ARGUE.utils import *
-from src.config.definitions import *
 from src.data.data_utils import *
 
 # TODO Ideas for experiments
@@ -44,18 +42,18 @@ if __name__ == "__main__":
     # Train ARGUE
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
-    model_path = get_model_archive_path() / "ARGUE_SSV_FWP30"
+    model_path = get_model_archive_path() / "ARGUE_SSV_FWP30_bigmodel"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
     else:
         # call and fit model
         model = ARGUE(input_dim=len(df_train.columns[:-1]),  # TODO revise input dims with partition etc to be easier
                       number_of_decoders=len(df_train["partition"].unique()),
-                      latent_dim=2, verbose=2)
-        model.build_model(encoder_hidden_layers=[15, 10, 5, 4, 3],
-                          decoders_hidden_layers=[3, 4, 5, 10, 15],
-                          alarm_hidden_layers=[40, 30, 20, 10],
-                          gating_hidden_layers=[20, 10, 5],
+                      latent_dim=2, verbose=1)
+        model.build_model(encoder_hidden_layers=[5, 5, 4, 4, 3],
+                          decoders_hidden_layers=[3, 4, 4, 5, 5],
+                          alarm_hidden_layers=[50, 40, 30, 20, 10],
+                          gating_hidden_layers=[50, 40, 30, 20, 10, 5],
                           all_activations="tanh",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
@@ -65,11 +63,12 @@ if __name__ == "__main__":
                           alarm_dropout_frac=0.1,
                           gating_dropout_frac=0.1)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=5,
+                  epochs=None, autoencoder_epochs=200, alarm_gating_epochs=100,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
-                  autoencoder_decay_after_epochs=None,
-                  alarm_gating_decay_after_epochs=None,
+                  autoencoder_decay_after_epochs=100,
+                  alarm_decay_after_epochs=100,
+                  gating_decay_after_epochs=100,
                   decay_rate=0.7, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=3)
@@ -97,6 +96,7 @@ if __name__ == "__main__":
 
     y_pred = model.predict(df_test)
     alarm = model.predict_alarm_probabilities(df_test)
+
     gating = model.predict_gating_weights(df_test)
     print("Alarm probs: \n", np.round(alarm, 4))
     print("Gating weights: \n", np.round(gating, 4))

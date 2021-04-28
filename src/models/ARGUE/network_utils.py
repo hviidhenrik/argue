@@ -71,6 +71,17 @@ class Network:
         self.activation_model = tf.keras.models.load_model(path / "activation_model", compile=False)
         return self.keras_model, self.activation_model
 
+class L1CategoricalCrossentropy(tf.keras.losses.Loss):
+
+    def __init__(self):
+        super().__init__()
+        self.catxe = tf.keras.losses.CategoricalCrossentropy()
+        self.l1_loss = tf.keras.losses.MeanAbsoluteError()
+
+    def call(self, y_true, y_pred):
+        return self.catxe(y_true, y_pred) + self.l1_loss(y_true, y_pred)
+
+
 
 if __name__ == "__main__":
     import tensorflow as tf
