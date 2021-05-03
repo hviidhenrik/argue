@@ -35,7 +35,7 @@ if __name__ == "__main__":
     scaler = MinMaxScaler().fit(x_train)
     x_train = pd.DataFrame(scaler.transform(x_train), columns=x_train.columns, index=x_train.index)
     x_test = pd.DataFrame(scaler.transform(x_test), columns=x_test.columns, index=x_test.index)
-    x_train = partition_by_quantiles(x_train, "Amount", quantiles=[0, 0.5, 1])
+    x_train = partition_by_quantiles(x_train, "Amount", quantiles=[0, 0.33, 0.66, 1])
 
     # Train ARGUE
     # USE_SAVED_MODEL = True
@@ -50,8 +50,8 @@ if __name__ == "__main__":
                       latent_dim=5, verbose=1)
         model.build_model(encoder_hidden_layers=[50, 40, 30, 20, 15],
                           decoders_hidden_layers=[15, 20, 30, 40, 50],
-                          alarm_hidden_layers=[1000, 500, 200, 75],
-                          gating_hidden_layers=[1000, 500, 200, 75],
+                          alarm_hidden_layers=[500, 200, 75],
+                          gating_hidden_layers=[500, 200, 75],
                           all_activations="relu",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
@@ -62,11 +62,12 @@ if __name__ == "__main__":
                           gating_dropout_frac=0.1
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=100, alarm_gating_epochs=100,
+                  epochs=None, autoencoder_epochs=50, alarm_gating_epochs=3,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=None,
-                  alarm_gating_decay_after_epochs=None,
+                  alarm_decay_after_epochs=None,
+                  gating_decay_after_epochs=None,
                   decay_rate=0.5, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=10)

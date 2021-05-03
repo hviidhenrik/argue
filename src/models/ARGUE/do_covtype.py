@@ -21,6 +21,8 @@ from src.data.data_utils import *
 
 
 if __name__ == "__main__":
+
+
     # load dataset
     debugging = True
     # debugging = False
@@ -40,7 +42,7 @@ if __name__ == "__main__":
     # partition by feature classes
     y_test = x_test["anomaly"]
     x_test = x_test.drop(columns=["anomaly"])
-    _, x_test_debug, _, y_test_debug = train_test_split(x_test, y_test, test_size=10)
+    _, x_test_debug, _, y_test_debug = train_test_split(x_test, y_test, test_size=1)
 
     x_test_debug_partitions = x_test_debug["Cover_Type"]
     x_test = x_test.drop(columns=["Cover_Type"])
@@ -54,8 +56,8 @@ if __name__ == "__main__":
     x_test_debug = pd.DataFrame(scaler.transform(x_test_debug), columns=x_test_debug.columns, index=x_test_debug.index)
 
     # Train ARGUE
-    USE_SAVED_MODEL = True
-    # USE_SAVED_MODEL = False
+    # USE_SAVED_MODEL = True
+    USE_SAVED_MODEL = False
     model_path = get_model_archive_path() / "ARGUE_covtype"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
@@ -78,7 +80,7 @@ if __name__ == "__main__":
                           gating_dropout_frac=0.1
                           )
         model.fit(x_train, x_train_partitions,
-                  epochs=None, autoencoder_epochs=150, alarm_gating_epochs=120,
+                  epochs=None, autoencoder_epochs=1, alarm_gating_epochs=1,
                   batch_size=None, autoencoder_batch_size=128, alarm_gating_batch_size=1024,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=None,
@@ -86,7 +88,7 @@ if __name__ == "__main__":
                   gating_decay_after_epochs=None,
                   decay_rate=0.7, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
-                  n_noise_samples=None, noise_stdev=1, noise_stdevs_away=10)
+                  n_noise_samples=None, noise_stdev=1, noise_stdevs_away=3)
         model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
@@ -103,9 +105,9 @@ if __name__ == "__main__":
     y_pred = model.predict(x_test)
     alarm = model.predict_alarm_probabilities(x_test)
     gating = model.predict_gating_weights(x_test)
-    print("Alarm probs: \n", np.round(alarm, 4))
-    print("Gating weights: \n", np.round(gating, 4))
-    print("Final predictions: \n", np.round(y_pred, 4))
+    print("Alarm probs: \n", np.round(alarm, 2))
+    print("Gating weights: \n", np.round(gating, 2))
+    print("Final predictions: \n", np.round(y_pred, 2))
 
     precision, recall, _ = precision_recall_curve(y_test, y_pred)
     print("\n >> ARGUE Performance evaluation: ")
@@ -118,8 +120,8 @@ if __name__ == "__main__":
     y_pred = model.predict(x_test_debug)
     alarm = model.predict_alarm_probabilities(x_test_debug)
     gating = model.predict_gating_weights(x_test_debug)
-    print("Alarm probs: \n", np.round(alarm, 4))
-    print("Gating weights: \n", np.round(gating, 4))
+    print("Alarm probs: \n", np.round(alarm, 2))
+    print("Gating weights: \n", np.round(gating, 2))
     print("True partitions: \n", np.array(x_test_debug_partitions))
-    print("Final predictions: \n", np.round(y_pred, 4))
+    print("Final predictions: \n", np.round(y_pred, 2))
     print("True alarm labels: \n", np.array(y_test_debug))

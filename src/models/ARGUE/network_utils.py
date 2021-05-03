@@ -33,7 +33,7 @@ class Network:
                     input_layer: tf.keras.layers.Layer,
                     output_layer: tf.keras.layers.Layer,
                     units_in_layers: List[int],
-                    activation="elu",
+                    activation: str = "elu",
                     dropout_frac: Optional[float] = None,
                     keep_output_layer_activations: bool = False):
         x = input_layer
@@ -47,7 +47,8 @@ class Network:
         # make activation model here
         activation_tensor = extract_activations(self.keras_model, self.name + "_activations",
                                                 keep_output_layer=keep_output_layer_activations)
-        self.activation_model = Model(inputs=self.keras_model.input, outputs=activation_tensor)
+        self.activation_model = Model(inputs=self.keras_model.input, outputs=activation_tensor,
+                                      name=self.name + "_activations")
         return self
 
     def summary(self, model: str = "keras_model"):
