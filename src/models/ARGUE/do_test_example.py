@@ -1,27 +1,23 @@
 import os
+
+import pandas as pd
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import matplotlib.pyplot as plt
 from src.models.ARGUE.models import ARGUE
 from src.models.ARGUE.data_generation import *
+from src.models.ARGUE.utils import *
+from src.data.data_utils import *
 
 if __name__ == "__main__":
+    tf.random.set_seed(1234)
+    np.random.seed(1234)
     # make some data
-    N = 10000
-    noise_sds = [10, 30, 6]
-    noise_sds = [0, 0, 0]
-    df = make_custom_test_data(N, N, N, noise_sd=noise_sds)
-    df.columns = ["x1", "x2", "x3"]
-    df["class"] = make_class_labels(classes=3, N=N)
-
-
-
-    # scale it
-    scaler = StandardScaler()
-    df[["x1", "x2", "x3"]] = scaler.fit_transform(df[["x1", "x2", "x3"]])
-    df.plot(subplots=True)
-    plt.show()
+    x_train = pd.DataFrame({"x1": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                            "x2": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0]})
+    x_train = partition_by_quantiles(x_train, "x1", quantiles=[0, 0.5, 1])
 
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
@@ -29,17 +25,34 @@ if __name__ == "__main__":
         model = ARGUE().load()
     else:
         # call and fit model
-        model = ARGUE(input_dim=3,
-                      number_of_decoders=3,
-                      latent_dim=5)
-        model.build_model(encoder_hidden_layers=[10, 8, 7],
-                          decoders_hidden_layers=[7, 8, 10],
-                          alarm_hidden_layers=[15, 10, 5, 3],
-                          gating_hidden_layers=[15, 12, 10],
-                          all_activations="tanh")
-        model.fit(df.drop(columns=["class"]), df["class"], epochs=7, number_of_batches=32, batch_size=256,
-                  n_noise_samples=N, optimizer="adam", validation_split=0.2, noise_mean=50, noise_stdev=0.5)
-        # model.save()
+        model = ARGUE(input_dim=2,
+                      number_of_decoders=2,
+                      latent_dim=1)
+        model.build_model(encoder_hidden_layers=[1, 1],
+                          decoders_hidden_layers=[1, 1],
+                          alarm_hidden_layers=[1, 1],
+                          gating_hidden_layers=[1, 1],
+                          all_activations="relu",
+                          use_encoder_activations_in_alarm=False,
+                          use_latent_activations_in_encoder_activations=False,
+                          use_decoder_outputs_in_decoder_activations=False,
+                          encoder_dropout_frac=None,
+                          decoders_dropout_frac=None,
+                          alarm_dropout_frac=None,
+                          gating_dropout_frac=None,
+                          make_model_visualiations=False
+                          )
+        model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
+                  epochs=None, autoencoder_epochs=0, alarm_gating_epochs=2,
+                  batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
+                  optimizer="adam", ae_learning_rate=0.1, alarm_gating_learning_rate=0.1,
+                  autoencoder_decay_after_epochs=None,
+                  alarm_decay_after_epochs=None,
+                  gating_decay_after_epochs=None,
+                  decay_rate=0.5, fp_penalty=0, fn_penalty=0,
+                  validation_split=1/6,
+                  n_noise_samples=None, noise_stdev=1, noise_stdevs_away=10)
+        # model.save(model_path)
 
     # make new data which contains some normal and anomalous samples
     healthy_samples = make_custom_test_data(5, 5, 5, noise_sd=noise_sds)

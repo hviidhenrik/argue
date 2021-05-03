@@ -11,6 +11,8 @@ _ANOGEN_PATH = _SRC_PATH / "models" / "AnoGen"
 _DOPING_PATH = _SRC_PATH / "models" / "Doping"
 _FIXED_CYCLE_PATH = _SRC_PATH / "models" / "FixedCycleTest"
 _FIXED_CYCLE_FIGURES_PATH = _FIXED_CYCLE_PATH / "figures"
+_ARGUE_PATH = _SRC_PATH / "models" / "ARGUE"
+_ARGUE_FIGURES_PATH = _ARGUE_PATH / "figures"
 
 def get_root_path() -> WindowsPath:
     return _ROOT_PATH
@@ -54,3 +56,9 @@ def get_fixed_cycle_path() -> WindowsPath:
 
 def get_fixed_cycle_figures_path() -> WindowsPath:
     return _FIXED_CYCLE_FIGURES_PATH
+
+def get_ARGUE_path() -> WindowsPath:
+    return _ARGUE_PATH
+
+def get_ARGUE_figures_path() -> WindowsPath:
+    return _ARGUE_FIGURES_PATH

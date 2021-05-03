@@ -33,7 +33,7 @@ class Network:
                     input_layer: tf.keras.layers.Layer,
                     output_layer: tf.keras.layers.Layer,
                     units_in_layers: List[int],
-                    activation="elu",
+                    activation: str = "elu",
                     dropout_frac: Optional[float] = None,
                     keep_output_layer_activations: bool = False):
         x = input_layer
@@ -47,7 +47,8 @@ class Network:
         # make activation model here
         activation_tensor = extract_activations(self.keras_model, self.name + "_activations",
                                                 keep_output_layer=keep_output_layer_activations)
-        self.activation_model = Model(inputs=self.keras_model.input, outputs=activation_tensor)
+        self.activation_model = Model(inputs=self.keras_model.input, outputs=activation_tensor,
+                                      name=self.name + "_activations")
         return self
 
     def summary(self, model: str = "keras_model"):
@@ -70,6 +71,17 @@ class Network:
         self.keras_model = tf.keras.models.load_model(path / "keras_model", compile=False)
         self.activation_model = tf.keras.models.load_model(path / "activation_model", compile=False)
         return self.keras_model, self.activation_model
+
+class L1CategoricalCrossentropy(tf.keras.losses.Loss):
+
+    def __init__(self):
+        super().__init__()
+        self.catxe = tf.keras.losses.CategoricalCrossentropy()
+        self.l1_loss = tf.keras.losses.MeanAbsoluteError()
+
+    def call(self, y_true, y_pred):
+        return self.catxe(y_true, y_pred) + self.l1_loss(y_true, y_pred)
+
 
 
 if __name__ == "__main__":
