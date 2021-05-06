@@ -16,8 +16,8 @@ from src.data.data_utils import *
 #    - do clustering using Kmeans or DBSCAN
 
 if __name__ == "__main__":
-    tf.random.set_seed(1234)
-    np.random.seed(1234)
+    # tf.random.set_seed(1234)
+    # np.random.seed(1234)
     # load dataset
     debugging = True
     # debugging = False
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # Train ARGUE
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
-    model_path = get_model_archive_path() / "ARGUE_SSV_FWP30_bigmodel"
+    model_path = get_model_archive_path() / "ARGUE_SSV_FWP30"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
     else:
@@ -65,7 +65,7 @@ if __name__ == "__main__":
                           alarm_dropout_frac=None,
                           gating_dropout_frac=None)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=200, alarm_gating_epochs=100,
+                  epochs=None, autoencoder_epochs=300, alarm_gating_epochs=100,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
                   autoencoder_decay_after_epochs=None,
@@ -100,6 +100,6 @@ if __name__ == "__main__":
     alarm = model.predict_alarm_probabilities(df_test)
 
     gating = model.predict_gating_weights(df_test)
-    print("Alarm probs: \n", np.round(alarm, 4))
-    print("Gating weights: \n", np.round(gating, 4))
-    print("Final predictions: \n", np.round(y_pred, 4))
+    print("Alarm probs: \n", np.round(alarm, 3))
+    print("Gating weights: \n", np.round(gating, 3))
+    print("Final predictions: \n", np.round(y_pred, 3))

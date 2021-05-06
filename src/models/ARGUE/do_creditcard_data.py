@@ -18,8 +18,8 @@ from src.data.data_utils import *
 
 if __name__ == "__main__":
     # load dataset
-    # debugging = True
-    debugging = False
+    debugging = True
+    # debugging = False
     size = get_dataset_purpose_as_str(debugging)
     path = get_data_path() / "creditcard_fraud"
     x_train = pd.read_csv(path / f"dataset_nominal_{size}.csv")
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     scaler = MinMaxScaler().fit(x_train)
     x_train = pd.DataFrame(scaler.transform(x_train), columns=x_train.columns, index=x_train.index)
     x_test = pd.DataFrame(scaler.transform(x_test), columns=x_test.columns, index=x_test.index)
-    x_train = partition_by_quantiles(x_train, "Amount", quantiles=[0, 0.33, 0.66, 1])
+    x_train = partition_by_quantiles(x_train, "Amount", quantiles=[0, 0.5, 1])
 
     # Train ARGUE
     # USE_SAVED_MODEL = True
@@ -52,17 +52,17 @@ if __name__ == "__main__":
                           decoders_hidden_layers=[15, 20, 30, 40, 50],
                           alarm_hidden_layers=[500, 200, 75],
                           gating_hidden_layers=[500, 200, 75],
-                          all_activations="relu",
+                          all_activations="elu",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
                           use_decoder_outputs_in_decoder_activations=True,
-                          encoder_dropout_frac=0.1,
-                          decoders_dropout_frac=0.1,
-                          alarm_dropout_frac=0.1,
-                          gating_dropout_frac=0.1
+                          encoder_dropout_frac=None,
+                          decoders_dropout_frac=None,
+                          alarm_dropout_frac=None,
+                          gating_dropout_frac=None
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=50, alarm_gating_epochs=3,
+                  epochs=None, autoencoder_epochs=100, alarm_gating_epochs=30,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=None,
@@ -70,7 +70,7 @@ if __name__ == "__main__":
                   gating_decay_after_epochs=None,
                   decay_rate=0.5, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
-                  n_noise_samples=None, noise_stdev=1, noise_stdevs_away=10)
+                  n_noise_samples=None)
         # model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
