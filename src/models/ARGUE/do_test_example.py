@@ -15,8 +15,8 @@ if __name__ == "__main__":
     tf.random.set_seed(1234)
     np.random.seed(1234)
     # make some data
-    x_train = pd.DataFrame({"x1": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                            "x2": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0]})
+    x_train = pd.DataFrame({"x1": [0.983, 0.992, 0.9976, 0.978, 0.987, 0.01, 0.003, 0.06, 0.002, 0.05],
+                            "x2": [0.978, 0.988, 0.969, 0.986, 0.9975, 0.001, 0.04, 0.0031, 0.0721, 0.0034]})
     x_train = partition_by_quantiles(x_train, "x1", quantiles=[0, 0.5, 1])
 
     # USE_SAVED_MODEL = True
@@ -28,14 +28,14 @@ if __name__ == "__main__":
         model = ARGUE(input_dim=2,
                       number_of_decoders=2,
                       latent_dim=1)
-        model.build_model(encoder_hidden_layers=[1, 1],
-                          decoders_hidden_layers=[1, 1],
-                          alarm_hidden_layers=[1, 1],
-                          gating_hidden_layers=[1, 1],
+        model.build_model(encoder_hidden_layers=[6, 5, 4, 3, 2],
+                          decoders_hidden_layers=[2, 3, 4, 5, 6],
+                          alarm_hidden_layers=[35, 30, 25, 20, 15, 10, 5, 3, 2],
+                          gating_hidden_layers=[25, 20, 15, 10, 5],
                           all_activations="relu",
-                          use_encoder_activations_in_alarm=False,
-                          use_latent_activations_in_encoder_activations=False,
-                          use_decoder_outputs_in_decoder_activations=False,
+                          use_encoder_activations_in_alarm=True,
+                          use_latent_activations_in_encoder_activations=True,
+                          use_decoder_outputs_in_decoder_activations=True,
                           encoder_dropout_frac=None,
                           decoders_dropout_frac=None,
                           alarm_dropout_frac=None,
@@ -43,38 +43,23 @@ if __name__ == "__main__":
                           make_model_visualiations=False
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=0, alarm_gating_epochs=2,
+                  epochs=None, autoencoder_epochs=50, alarm_gating_epochs=50,
                   batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
-                  optimizer="adam", ae_learning_rate=0.1, alarm_gating_learning_rate=0.1,
+                  optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.001,
                   autoencoder_decay_after_epochs=None,
                   alarm_decay_after_epochs=None,
                   gating_decay_after_epochs=None,
                   decay_rate=0.5, fp_penalty=0, fn_penalty=0,
                   validation_split=1/6,
-                  n_noise_samples=None, noise_stdev=1, noise_stdevs_away=10)
+                  n_noise_samples=100)
         # model.save(model_path)
 
-    # make new data which contains some normal and anomalous samples
-    healthy_samples = make_custom_test_data(5, 5, 5, noise_sd=noise_sds)
-    healthy_labels = make_class_labels(3, 5)
-    healthy_samples.plot(subplots=True)
-    plt.show()
-
-    anomalies = pd.DataFrame(np.array([
-        [50, 50, 50],
-        [200, 200, 200],
-        [-30, -30, -30],
-    ]).reshape(-1, 3), columns=healthy_samples.columns)
-    anomaly_labels = [-1 for _ in range(anomalies.shape[0])]
-    test_samples = pd.concat([healthy_samples, anomalies]).reset_index(drop=True)
-    test_samples = pd.DataFrame(scaler.transform(test_samples), columns=test_samples.columns)
-
-    model.predict_plot_reconstructions(test_samples)
-    plt.show()
+    anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
+                              "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
 
     # predict the mixed data
-    print("Alarm probabilities:\n ", model.predict_alarm_probabilities(test_samples))
-    print("\nGating weights:\n ", model.predict_gating_weights(test_samples))
-    print(f"\nFinal anomaly probabilities:\n {np.round(model.predict(test_samples), 4)}")
-    model.predict_plot_anomalies(test_samples, true_classes=healthy_labels + anomaly_labels)
+    print("Alarm probabilities:\n ", np.round(model.predict_alarm_probabilities(anomalies), 4))
+    print("\nGating weights:\n ", np.round(model.predict_gating_weights(anomalies), 3))
+    print(f"\nFinal anomaly probabilities:\n {np.round(model.predict(anomalies), 4)}")
+    model.predict_plot_anomalies(anomalies, true_partitions=None)
     plt.show()

@@ -7,6 +7,7 @@ from typing import List, Union, Optional
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense
+from sklearn.preprocessing import MinMaxScaler
 
 
 def extract_activations(network: tf.keras.models.Model,
@@ -91,6 +92,25 @@ def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = Non
     qs = x.quantile(quantiles)
     noise_below = np.random.normal(qs.iloc[0] - stdev * stdevs_away, stdev, size=(N, input_dim))
     noise_above = np.random.normal(qs.iloc[1] + stdev * stdevs_away, stdev, size=(N, input_dim))
+    df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
+    return df_noise
+
+
+def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
+                            **kwargs):
+    input_dim = pd.DataFrame(x).shape[1]
+    n_noise_samples = x.shape[0] // 2 if n_noise_samples is None else n_noise_samples // 2
+
+    # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
+    if n_noise_samples < 2:
+        return pd.DataFrame(np.random.normal(size=(1, input_dim)), columns=x.columns)
+
+    normal_area = (x.min().min(), x.max().max())
+
+    df_noise1 = np.random.normal(size=(n_noise_samples, input_dim))
+    df_noise2 = np.random.normal(size=(n_noise_samples, input_dim))
+    noise_below = MinMaxScaler(feature_range=(-3, normal_area[0]-1)).fit_transform(df_noise1)
+    noise_above = MinMaxScaler(feature_range=(normal_area[1]+1, 4)).fit_transform(df_noise2)
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
     return df_noise
 

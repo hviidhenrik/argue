@@ -13,15 +13,17 @@ from src.config.definitions import *
 from src.data.data_utils import *
 
 # TODO covtype:
-#  - look into why all alarm probs can be very low near zero (shouldnt be possible)
-#  - also, gating network seems to only choose virtual decision on small test set (debug)
-#       - something is going on with the labeling or shuffling inside .fit, probably
-#       - also, could be a problem with the predict function, since the training seems fine, but the predictions
-#         achieve a very low AUC and accuracy at 50% == random. Look into .predict method and trace the problem back
+#  - look into what goes into the alarm and gating networks during training since training is completely off
+#       - are labels messed up or something?
+#  - look into fixing one-hot encoded noise features between 0 and 1
+#  - when doing covtype B, partitions in autoencoders get names like partition_4 ... partition 7. Fix this to
+#    partition 1, ... , partition 4
+
 
 
 if __name__ == "__main__":
-
+    # tf.random.set_seed(1234)
+    # np.random.seed(1234)
 
     # load dataset
     debugging = True
@@ -31,7 +33,9 @@ if __name__ == "__main__":
     # covtype = "B"
     path = get_data_path() / "covtype"
     x_train = pd.read_csv(path / f"data_covtype_normal_{covtype}_{size}.csv", index_col=False)
+    # x_train = pd.concat([x_train.iloc[:, :10], x_train.iloc[:, -1]], axis=1)
     x_test_anomaly = pd.read_csv(path / f"data_covtype_anomaly_{covtype}_{size}.csv")
+    # x_test_anomaly = pd.concat([x_test_anomaly.iloc[:, :10], x_test_anomaly.iloc[:, -1]], axis=1)
     x_train, x_test_normal = train_test_split(x_train, test_size=x_test_anomaly.shape[0])
 
     # scale the data and partition it into partitions
@@ -42,7 +46,7 @@ if __name__ == "__main__":
     # partition by feature classes
     y_test = x_test["anomaly"]
     x_test = x_test.drop(columns=["anomaly"])
-    _, x_test_debug, _, y_test_debug = train_test_split(x_test, y_test, test_size=1)
+    _, x_test_debug, _, y_test_debug = train_test_split(x_test, y_test, test_size=10)
 
     x_test_debug_partitions = x_test_debug["Cover_Type"]
     x_test = x_test.drop(columns=["Cover_Type"])
@@ -66,11 +70,11 @@ if __name__ == "__main__":
         model = ARGUE(input_dim=len(x_train.columns),
                       number_of_decoders=len(x_train_partitions.unique()),
                       latent_dim=15, verbose=1)
-        model.build_model(encoder_hidden_layers=[90, 75, 60, 45, 25, 15],
-                          decoders_hidden_layers=[15, 25, 45, 60, 75, 90],
-                          alarm_hidden_layers=[1000, 500, 200, 75],
-                          gating_hidden_layers=[1000, 500, 200, 75],
-                          all_activations="relu",
+        model.build_model(encoder_hidden_layers=[60, 45, 25],
+                          decoders_hidden_layers=[25, 45, 60],
+                          alarm_hidden_layers=[100, 50],
+                          gating_hidden_layers=[100, 50],
+                          all_activations="tanh",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
                           use_decoder_outputs_in_decoder_activations=True,
@@ -80,16 +84,17 @@ if __name__ == "__main__":
                           gating_dropout_frac=0.1
                           )
         model.fit(x_train, x_train_partitions,
-                  epochs=None, autoencoder_epochs=1, alarm_gating_epochs=1,
-                  batch_size=None, autoencoder_batch_size=128, alarm_gating_batch_size=1024,
+                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=50,
+                  batch_size=None, autoencoder_batch_size=64, alarm_gating_batch_size=64,
+                  ae_learning_rate=0.0003, alarm_gating_learning_rate=0.0003,
                   optimizer="adam",
                   autoencoder_decay_after_epochs=None,
                   alarm_decay_after_epochs=None,
                   gating_decay_after_epochs=None,
                   decay_rate=0.7, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
-                  n_noise_samples=None, noise_stdev=1, noise_stdevs_away=3)
-        model.save(model_path)
+                  n_noise_samples=None)
+        # model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
     # x_train_sanity_check = x_train.drop(columns=["Cover_Type"]).sample(300).sort_index()

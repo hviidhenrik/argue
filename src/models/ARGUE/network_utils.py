@@ -36,9 +36,11 @@ class Network:
                     activation: str = "elu",
                     dropout_frac: Optional[float] = None,
                     keep_output_layer_activations: bool = False):
+
+        weight_initializer = "he_uniform" if activation == "relu" else "glorot_uniform"
         x = input_layer
         for units in units_in_layers:
-            x = Dense(units, activation=activation)(x)
+            x = Dense(units, activation=activation, kernel_initializer=weight_initializer)(x)
             if dropout_frac is not None:
                 x = tf.keras.layers.Dropout(dropout_frac)(x)
         outputs = output_layer(x)

@@ -16,11 +16,11 @@ from src.data.data_utils import *
 #    - do clustering using Kmeans or DBSCAN
 
 if __name__ == "__main__":
-    tf.random.set_seed(1234)
-    np.random.seed(1234)
+    # tf.random.set_seed(1234)
+    # np.random.seed(1234)
     # load dataset
-    debugging = True
-    # debugging = False
+    # debugging = True
+    debugging = False
     size = get_dataset_purpose_as_str(debugging)
     path = get_data_path() / "ssv_feedwater_pump" / f"data_pump_30_{size}_cleaned.csv"
     df_raw = get_local_data(path)
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # Train ARGUE
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
-    model_path = get_model_archive_path() / "ARGUE_SSV_FWP30_bigmodel"
+    model_path = get_model_archive_path() / "ARGUE_SSV_FWP30"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
     else:
@@ -57,20 +57,20 @@ if __name__ == "__main__":
                           alarm_hidden_layers=[50, 40, 30, 20, 10],
                           gating_hidden_layers=[50, 40, 30, 20, 10, 5],
                           all_activations="tanh",
-                          use_encoder_activations_in_alarm=False,
-                          use_latent_activations_in_encoder_activations=False,
-                          use_decoder_outputs_in_decoder_activations=False,
-                          encoder_dropout_frac=None,
-                          decoders_dropout_frac=None,
-                          alarm_dropout_frac=None,
-                          gating_dropout_frac=None)
+                          use_encoder_activations_in_alarm=True,
+                          use_latent_activations_in_encoder_activations=True,
+                          use_decoder_outputs_in_decoder_activations=True,
+                          encoder_dropout_frac=0.1,
+                          decoders_dropout_frac=0.1,
+                          alarm_dropout_frac=0.1,
+                          gating_dropout_frac=0.1)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=200, alarm_gating_epochs=100,
-                  batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
+                  epochs=None, autoencoder_epochs=200, alarm_gating_epochs=200,
+                  batch_size=None, autoencoder_batch_size=128, alarm_gating_batch_size=128,
                   optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
-                  autoencoder_decay_after_epochs=None,
-                  alarm_decay_after_epochs=None,
-                  gating_decay_after_epochs=None,
+                  autoencoder_decay_after_epochs=250,
+                  alarm_decay_after_epochs=90,
+                  gating_decay_after_epochs=90,
                   decay_rate=0.7, fp_penalty=0, fn_penalty=0,
                   validation_split=0.15,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
@@ -100,6 +100,6 @@ if __name__ == "__main__":
     alarm = model.predict_alarm_probabilities(df_test)
 
     gating = model.predict_gating_weights(df_test)
-    print("Alarm probs: \n", np.round(alarm, 4))
-    print("Gating weights: \n", np.round(gating, 4))
-    print("Final predictions: \n", np.round(y_pred, 4))
+    print("Alarm probs: \n", np.round(alarm, 3))
+    print("Gating weights: \n", np.round(gating, 3))
+    print("Final predictions: \n", np.round(y_pred, 3))
