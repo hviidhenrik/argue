@@ -161,10 +161,10 @@ class ARGUE:
 
     @staticmethod
     def _init_optimizer(optimizer: str,
-                        decay_after_epochs: Optional[int] = None,
-                        batch_size: Optional[int] = None,
-                        dataset_rows: int = None,
                         initial_lr: float = 0.0003,
+                        dataset_rows: int = None,
+                        batch_size: Optional[int] = None,
+                        decay_after_epochs: Optional[int] = None,
                         decay_rate: float = 0.7):
         optimizer = tf.keras.optimizers.get(optimizer)
         if decay_after_epochs is not None:
@@ -380,6 +380,7 @@ class ARGUE:
 
         autoencoder_train_dataset_dict = {}
         autoencoder_val_dataset_dict = {}
+        autoencoder_data_partition_sizes = []
         for partition_number, data_partition in enumerate(unique_partitions):
             train_dataset = x_train[x_train["partition"] == data_partition].drop(columns=["partition"])
             val_dataset = x_val[x_val["partition"] == data_partition].drop(columns=["partition"])
@@ -390,6 +391,7 @@ class ARGUE:
             ae_val_batch_size = np.min([val_dataset.shape[0], 1024])
 
             ae_number_of_batches = train_dataset.shape[0] // autoencoder_batch_size
+            autoencoder_data_partition_sizes.append(train_dataset.shape[0])
 
             train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
             val_dataset = tf.data.Dataset.from_tensor_slices(val_dataset)
@@ -412,9 +414,11 @@ class ARGUE:
 
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
-        ae_optimizer = self._init_optimizer(optimizer, autoencoder_decay_after_epochs,
-                                            autoencoder_batch_size, x_train.shape[0],
-                                            ae_learning_rate, decay_rate)
+        ae_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=ae_learning_rate,
+                                            dataset_rows=np.max(autoencoder_data_partition_sizes),
+                                            batch_size=autoencoder_batch_size,
+                                            decay_after_epochs=autoencoder_decay_after_epochs,
+                                            decay_rate=decay_rate)
 
         @tf.function
         def _ae_train_step(x_batch_train):
@@ -497,11 +501,26 @@ class ARGUE:
         vprint(self.verbose, "\n\n=== Phase 2: training alarm & gating networks ===")
 
         # init optimizers
-        alarm_optimizer = self._init_optimizer(optimizer, alarm_decay_after_epochs, alarm_gating_batch_size,
-                                               alarm_gating_learning_rate, decay_rate)
-        gating_optimizer = self._init_optimizer(optimizer, gating_decay_after_epochs, alarm_gating_batch_size,
-                                                alarm_gating_learning_rate, decay_rate)
-        final_optimizer = self._init_optimizer(optimizer, initial_lr=alarm_gating_learning_rate)
+        alarm_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=alarm_gating_learning_rate,
+                                               dataset_rows=x_train.shape[0],
+                                               batch_size=alarm_gating_batch_size,
+                                               decay_after_epochs=alarm_decay_after_epochs,
+                                               decay_rate=decay_rate)
+        gating_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=alarm_gating_learning_rate,
+                                                dataset_rows=x_train.shape[0],
+                                                batch_size=alarm_gating_batch_size,
+                                                decay_after_epochs=gating_decay_after_epochs,
+                                                decay_rate=decay_rate)
+        final_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=alarm_gating_learning_rate,
+                                               dataset_rows=x_train.shape[0],
+                                               batch_size=alarm_gating_batch_size,
+                                               decay_after_epochs=alarm_decay_after_epochs,
+                                               decay_rate=decay_rate)
+        # alarm_optimizer = self._init_optimizer(optimizer, alarm_decay_after_epochs, alarm_gating_batch_size,
+        #                                        alarm_gating_learning_rate, decay_rate)
+        # gating_optimizer = self._init_optimizer(optimizer, gating_decay_after_epochs, alarm_gating_batch_size,
+        #                                         alarm_gating_learning_rate, decay_rate)
+        # final_optimizer = self._init_optimizer(optimizer, initial_lr=alarm_gating_learning_rate)
 
         # training loop
         gating_model = self.input_to_gating
