@@ -1,8 +1,8 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="model-template",
-    version="0",
+    name="phd-models",
+    version="1.0",
     description="Predictive maintenance models for ...",
     author="Ørsted",
     packages=find_packages(),

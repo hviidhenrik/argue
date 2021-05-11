@@ -70,11 +70,11 @@ if __name__ == "__main__":
         model = ARGUE(input_dim=len(x_train.columns),
                       number_of_decoders=len(x_train_partitions.unique()),
                       latent_dim=15, verbose=1)
-        model.build_model(encoder_hidden_layers=[60, 45, 25],
-                          decoders_hidden_layers=[25, 45, 60],
-                          alarm_hidden_layers=[100, 50],
-                          gating_hidden_layers=[100, 50],
-                          all_activations="tanh",
+        model.build_model(encoder_hidden_layers=[90, 75, 60, 45, 25],
+                          decoders_hidden_layers=[25, 45, 60, 75, 90],
+                          alarm_hidden_layers=[1000, 500, 200, 75],
+                          gating_hidden_layers=[1000, 500, 200, 75],
+                          all_activations="relu",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
                           use_decoder_outputs_in_decoder_activations=True,
@@ -84,7 +84,7 @@ if __name__ == "__main__":
                           gating_dropout_frac=0.1
                           )
         model.fit(x_train, x_train_partitions,
-                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=50,
+                  epochs=None, autoencoder_epochs=200, alarm_gating_epochs=5,
                   batch_size=None, autoencoder_batch_size=64, alarm_gating_batch_size=64,
                   ae_learning_rate=0.0003, alarm_gating_learning_rate=0.0003,
                   optimizer="adam",
@@ -92,9 +92,9 @@ if __name__ == "__main__":
                   alarm_decay_after_epochs=None,
                   gating_decay_after_epochs=None,
                   decay_rate=0.7, fp_penalty=0, fn_penalty=0,
-                  validation_split=0.15,
+                  validation_split=0.10,
                   n_noise_samples=None)
-        # model.save(model_path)
+        model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
     # x_train_sanity_check = x_train.drop(columns=["Cover_Type"]).sample(300).sort_index()

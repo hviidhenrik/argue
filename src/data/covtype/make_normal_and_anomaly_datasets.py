@@ -14,6 +14,11 @@ if __name__ == "__main__":
     df_normal_B = df_original[(df_original["Cover_Type"] > 3)]
     df_anomaly_B = df_original[(df_original["Cover_Type"] < 4)]
 
+    save_local_data(df_normal_A, path / "data_covtype_normal_A_large.csv")
+    save_local_data(df_anomaly_A, path / "data_covtype_anomaly_A_large.csv")
+    save_local_data(df_normal_B, path / "data_covtype_normal_B_large.csv")
+    save_local_data(df_anomaly_B, path / "data_covtype_anomaly_B_large.csv")
+
     make_and_save_debugging_dataset(df_normal_A, size=30000,
                                     filename=path / "data_covtype_normal_A_small.csv",
                                     index=False)

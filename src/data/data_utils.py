@@ -58,3 +58,15 @@ def get_dataset_purpose_as_str(debugging: bool = None) -> str:
 
 def is_dataset_for_debugging(purpose: str = None) -> bool:
     return True if "debugging" in purpose else False
+
+def get_df_with_bad_data(df_cleaned: DataFrame, df_not_cleaned: DataFrame) -> DataFrame:
+    """
+    Gets the set difference between df_cleaned and df_not_cleaned, where df_not_cleaned is supposed to be
+    a bigger dataframe than df_cleaned. This gets the rows that were filtered out during cleaning.
+    Useful for testing anomaly models on since most of these rows should be labeled as anomalies.
+
+    :param df_cleaned: dataframe of cleaned data
+    :param df_not_cleaned: dataframe of raw/uncleaned data
+    :return: dataframe of rows that were filtered out during data cleaning
+    """
+    return df_not_cleaned[~df_not_cleaned.index.isin(df_cleaned.index)]

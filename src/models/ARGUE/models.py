@@ -353,7 +353,6 @@ class ARGUE:
         x_noise = generate_noise_samples2(x_copy.drop(columns=["partition"]),
                                           quantiles=[0.005, 0.995], stdev=noise_stdev,
                                           stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
-        print(x_noise)
         x_noise["partition"] = -1
         x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
@@ -414,7 +413,8 @@ class ARGUE:
 
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
-        ae_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=ae_learning_rate,
+        ae_optimizer = self._init_optimizer(optimizer=optimizer,
+                                            initial_lr=ae_learning_rate,
                                             dataset_rows=np.max(autoencoder_data_partition_sizes),
                                             batch_size=autoencoder_batch_size,
                                             decay_after_epochs=autoencoder_decay_after_epochs,

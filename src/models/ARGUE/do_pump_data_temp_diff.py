@@ -27,10 +27,11 @@ if __name__ == "__main__":
     df_raw = df_raw[["effect_pump_30_MW", "flow_after_pump", "temp_after_pump", "temp_slipring_water_suction_side",
                      "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
     # form train and test sets
-    df_train = pd.concat([df_raw.loc[:"2019-12-30 23:59:59"],
-                          df_raw.loc["2020-02-05 23:59:59":
+    df_train = pd.concat([df_raw.loc[:"2019-12-01 23:59:59"],
+                          df_raw.loc["2020-02-30 23:59:59":
                                      "2020-09-14 23:59:59"]])
-    df_test = df_raw.loc["2020-09-15":]
+    df_test = get_df_with_bad_data(df_train, df_raw)
+    # df_test = df_raw.loc["2020-09-15":]
     df_test.plot(subplots=True, rot=5)
     plt.suptitle("SSV Feedwater pump 30 temperature tags")
     plt.show()
@@ -65,14 +66,14 @@ if __name__ == "__main__":
                           alarm_dropout_frac=0.1,
                           gating_dropout_frac=0.1)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=200, alarm_gating_epochs=200,
-                  batch_size=None, autoencoder_batch_size=128, alarm_gating_batch_size=128,
-                  optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
-                  autoencoder_decay_after_epochs=250,
-                  alarm_decay_after_epochs=90,
-                  gating_decay_after_epochs=90,
+                  epochs=None, autoencoder_epochs=300, alarm_gating_epochs=150,
+                  batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
+                  optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.0001,
+                  autoencoder_decay_after_epochs=70,
+                  alarm_decay_after_epochs=60,
+                  gating_decay_after_epochs=60,
                   decay_rate=0.7, fp_penalty=0, fn_penalty=0,
-                  validation_split=0.15,
+                  validation_split=0.2,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
         # model.save(model_path)
 
