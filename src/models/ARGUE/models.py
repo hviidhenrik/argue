@@ -161,21 +161,35 @@ class ARGUE:
 
     @staticmethod
     def _init_optimizer(optimizer: str,
-                        initial_lr: float = 0.0003,
-                        dataset_rows: int = None,
-                        batch_size: Optional[int] = None,
-                        decay_after_epochs: Optional[int] = None,
-                        decay_rate: float = 0.7):
+                        learning_rate: float = 0.0003):
         optimizer = tf.keras.optimizers.get(optimizer)
-        if decay_after_epochs is not None:
-            decay_step = (dataset_rows // batch_size) * decay_after_epochs
-            learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-                initial_learning_rate=initial_lr,
-                decay_steps=decay_step,
-                decay_rate=decay_rate)
-        else:
-            learning_rate = initial_lr
         optimizer.__init__(learning_rate=learning_rate)
+        return optimizer
+
+    @staticmethod
+    def _init_optimizer_with_lr_schedule(optimizer: str,
+                                         initial_learning_rate: float = 0.0003,
+                                         decay_after_epochs: int = 10,
+                                         decay_rate: float = 0.7,
+                                         dataset_rows: int = None,
+                                         batch_size: int = None,
+                                         total_epochs: int = 4,
+                                         plot_schedule: bool = False,
+                                         ):
+        steps_per_epoch = (dataset_rows // batch_size)
+        decay_steps = np.multiply(steps_per_epoch, decay_after_epochs)
+        staircase = True
+        learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate,
+                                                                       decay_steps, decay_rate,
+                                                                       staircase=staircase)
+        optimizer = tf.keras.optimizers.get(optimizer)
+        optimizer.__init__(learning_rate=learning_rate)
+
+        if plot_schedule:
+            total_steps = total_epochs * steps_per_epoch
+            plot_learning_schedule(total_steps=total_steps, initial_learning_rate=initial_learning_rate,
+                                   decay_rate=decay_rate, decay_steps=decay_steps, staircase=staircase)
+            plt.show()
         return optimizer
 
     def _unfreeze_partition_decoder(self, partition):
@@ -322,9 +336,9 @@ class ARGUE:
             n_noise_samples: Optional[int] = None,
             noise_stdevs_away: float = 3.0,
             noise_stdev: float = 1.0,
-            ae_learning_rate: float = 0.0001,
+            ae_learning_rate: Union[float, List[float]] = 0.0001,
             alarm_gating_learning_rate: float = 0.0001,
-            autoencoder_decay_after_epochs: Optional[int] = None,
+            autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
             alarm_decay_after_epochs: Optional[int] = None,
             gating_decay_after_epochs: Optional[int] = None,
             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
@@ -413,12 +427,19 @@ class ARGUE:
 
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
-        ae_optimizer = self._init_optimizer(optimizer=optimizer,
-                                            initial_lr=ae_learning_rate,
-                                            dataset_rows=np.max(autoencoder_data_partition_sizes),
-                                            batch_size=autoencoder_batch_size,
-                                            decay_after_epochs=autoencoder_decay_after_epochs,
-                                            decay_rate=decay_rate)
+        if autoencoder_decay_after_epochs is None:
+            ae_optimizer = self._init_optimizer(optimizer=optimizer,
+                                                learning_rate=ae_learning_rate)
+        else:
+            ae_dataset_rows = self.number_of_decoders * np.max(autoencoder_data_partition_sizes)
+            ae_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
+                                                                 initial_learning_rate=ae_learning_rate,
+                                                                 decay_after_epochs=autoencoder_decay_after_epochs,
+                                                                 decay_rate=decay_rate,
+                                                                 dataset_rows=ae_dataset_rows,
+                                                                 batch_size=autoencoder_batch_size,
+                                                                 total_epochs=autoencoder_epochs,
+                                                                 plot_schedule=True)
 
         @tf.function
         def _ae_train_step(x_batch_train):
@@ -501,21 +522,40 @@ class ARGUE:
         vprint(self.verbose, "\n\n=== Phase 2: training alarm & gating networks ===")
 
         # init optimizers
-        alarm_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=alarm_gating_learning_rate,
-                                               dataset_rows=x_train.shape[0],
-                                               batch_size=alarm_gating_batch_size,
-                                               decay_after_epochs=alarm_decay_after_epochs,
-                                               decay_rate=decay_rate)
-        gating_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=alarm_gating_learning_rate,
-                                                dataset_rows=x_train.shape[0],
-                                                batch_size=alarm_gating_batch_size,
-                                                decay_after_epochs=gating_decay_after_epochs,
-                                                decay_rate=decay_rate)
-        final_optimizer = self._init_optimizer(optimizer=optimizer, initial_lr=alarm_gating_learning_rate,
-                                               dataset_rows=x_train.shape[0],
-                                               batch_size=alarm_gating_batch_size,
-                                               decay_after_epochs=alarm_decay_after_epochs,
-                                               decay_rate=decay_rate)
+        if alarm_decay_after_epochs is None:
+            alarm_optimizer = self._init_optimizer(optimizer=optimizer,
+                                                   learning_rate=alarm_gating_learning_rate)
+            final_optimizer = self._init_optimizer(optimizer=optimizer,
+                                                   learning_rate=alarm_gating_learning_rate)
+        else:
+            alarm_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
+                                                                    initial_learning_rate=alarm_gating_learning_rate,
+                                                                    decay_after_epochs=alarm_decay_after_epochs,
+                                                                    decay_rate=decay_rate,
+                                                                    dataset_rows=x_train.shape[0],
+                                                                    batch_size=alarm_gating_batch_size,
+                                                                    total_epochs=alarm_gating_epochs,
+                                                                    plot_schedule=True)
+            final_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
+                                                                    initial_learning_rate=alarm_gating_learning_rate,
+                                                                    decay_after_epochs=alarm_decay_after_epochs,
+                                                                    decay_rate=decay_rate,
+                                                                    dataset_rows=x_train.shape[0],
+                                                                    batch_size=alarm_gating_batch_size,
+                                                                    total_epochs=alarm_gating_epochs,
+                                                                    plot_schedule=False)
+        if gating_decay_after_epochs is None:
+            gating_optimizer = self._init_optimizer(optimizer=optimizer,
+                                                    learning_rate=alarm_gating_learning_rate)
+        else:
+            gating_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
+                                                                     initial_learning_rate=alarm_gating_learning_rate,
+                                                                     decay_after_epochs=gating_decay_after_epochs,
+                                                                     decay_rate=decay_rate,
+                                                                     dataset_rows=x_train.shape[0],
+                                                                     batch_size=alarm_gating_batch_size,
+                                                                     total_epochs=alarm_gating_epochs,
+                                                                     plot_schedule=True)
 
         # training loop
         gating_model = self.input_to_gating
