@@ -516,11 +516,6 @@ class ARGUE:
                                                batch_size=alarm_gating_batch_size,
                                                decay_after_epochs=alarm_decay_after_epochs,
                                                decay_rate=decay_rate)
-        # alarm_optimizer = self._init_optimizer(optimizer, alarm_decay_after_epochs, alarm_gating_batch_size,
-        #                                        alarm_gating_learning_rate, decay_rate)
-        # gating_optimizer = self._init_optimizer(optimizer, gating_decay_after_epochs, alarm_gating_batch_size,
-        #                                         alarm_gating_learning_rate, decay_rate)
-        # final_optimizer = self._init_optimizer(optimizer, initial_lr=alarm_gating_learning_rate)
 
         # training loop
         gating_model = self.input_to_gating

@@ -30,8 +30,8 @@ if __name__ == "__main__":
                       latent_dim=1)
         model.build_model(encoder_hidden_layers=[6, 5, 4, 3, 2],
                           decoders_hidden_layers=[2, 3, 4, 5, 6],
-                          alarm_hidden_layers=[35, 30, 25, 20, 15, 10, 5, 3, 2],
-                          gating_hidden_layers=[25, 20, 15, 10, 5],
+                          alarm_hidden_layers=[15, 10, 5, 3, 2],
+                          gating_hidden_layers=[15, 10, 5],
                           all_activations="relu",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
@@ -43,7 +43,7 @@ if __name__ == "__main__":
                           make_model_visualiations=False
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=50, alarm_gating_epochs=50,
+                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=1,
                   batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
                   optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.001,
                   autoencoder_decay_after_epochs=None,
@@ -58,8 +58,11 @@ if __name__ == "__main__":
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
 
     # predict the mixed data
+    final_preds = np.round(model.predict(anomalies), 4)
     print("Alarm probabilities:\n ", np.round(model.predict_alarm_probabilities(anomalies), 4))
     print("\nGating weights:\n ", np.round(model.predict_gating_weights(anomalies), 3))
-    print(f"\nFinal anomaly probabilities:\n {np.round(model.predict(anomalies), 4)}")
+    print(f"\nFinal anomaly probabilities:\n {final_preds}")
     model.predict_plot_anomalies(anomalies, true_partitions=None)
     plt.show()
+
+    assert np.sum(final_preds - np.array([0.781, 0.9317, 0.9528, 0.9512, 0.9606, 0.9623, 0.9634, 0.9288])) == 0.0
