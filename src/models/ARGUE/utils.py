@@ -8,6 +8,7 @@ from typing import List, Union, Optional
 import tensorflow as tf
 from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import MinMaxScaler
+import matplotlib.pyplot as plt
 
 
 def extract_activations(network: tf.keras.models.Model,
@@ -113,5 +114,30 @@ def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
     noise_above = MinMaxScaler(feature_range=(normal_area[1]+1, 4)).fit_transform(df_noise2)
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
     return df_noise
+
+
+def plot_learning_schedule(total_steps: int = None,
+                           initial_learning_rate: float = None,
+                           decay_rate: float = None,
+                           decay_steps: int = None,
+                           staircase: bool = False,
+                           verbose: bool = False):
+    def decayed_learning_rate(step):
+        exponent = (step // decay_steps) if staircase else (step / decay_steps)
+        return np.power(initial_learning_rate * decay_rate, exponent)
+    def get_lr(step):
+        return decayed_learning_rate(step) if step > decay_steps else initial_learning_rate
+
+    steps = np.arange(total_steps)
+    lr = []
+    for step in steps:
+        learning_rate = get_lr(step)
+        lr.append(learning_rate)
+        vprint(verbose, f"Learning rate: {learning_rate:.4f}")
+
+    plt.plot(steps, lr)
+    plt.suptitle(f"Learning rate schedule with decay_rate = {decay_rate}")
+    plt.xlabel("Step")
+    plt.ylabel("Learning rate")
 
 
