@@ -6,12 +6,15 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages 
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import matplotlib.pyplot as plt
-from src.models.ARGUE.models import ARGUE
+from src.models.ARGUE.argue import ARGUE
 from src.models.ARGUE.data_generation import *
 from src.models.ARGUE.utils import *
 from src.data.data_utils import *
 
 if __name__ == "__main__":
+
+    from tensorflow.python.client import device_lib
+    print(device_lib.list_local_devices())
     tf.random.set_seed(1234)
     np.random.seed(1234)
     # make some data
@@ -43,7 +46,7 @@ if __name__ == "__main__":
                           make_model_visualiations=False
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=500, alarm_gating_epochs=60,
+                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=3,
                   batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
                   optimizer="adam",
                   ae_learning_rate=0.0001,
@@ -67,4 +70,4 @@ if __name__ == "__main__":
     model.predict_plot_anomalies(anomalies, true_partitions=None)
     plt.show()
 
-    assert np.sum(final_preds - np.array([0.781, 0.9317, 0.9528, 0.9512, 0.9606, 0.9623, 0.9634, 0.9288])) == 0.0
+    # assert np.sum(final_preds - np.array([0.781, 0.9317, 0.9528, 0.9512, 0.9606, 0.9623, 0.9634, 0.9288])) == 0.0

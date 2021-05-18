@@ -6,7 +6,7 @@ from sklearn.metrics import (confusion_matrix, roc_auc_score, precision_recall_c
                              accuracy_score)
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
-from src.models.ARGUE.models import ARGUE
+from src.models.ARGUE.argue import ARGUE
 from src.models.ARGUE.data_generation import *
 from src.models.ARGUE.utils import *
 from src.config.definitions import *

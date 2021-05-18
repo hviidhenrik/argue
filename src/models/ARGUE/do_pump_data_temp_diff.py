@@ -3,7 +3,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages 
 
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
-from src.models.ARGUE.models import ARGUE
+from src.models.ARGUE.argue import ARGUE
 from src.models.ARGUE.utils import *
 from src.data.data_utils import *
 
@@ -66,7 +66,7 @@ if __name__ == "__main__":
                           alarm_dropout_frac=0.1,
                           gating_dropout_frac=0.1)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=300, alarm_gating_epochs=15,
+                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=3,
                   batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
                   optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.0001,
                   autoencoder_decay_after_epochs=50,
