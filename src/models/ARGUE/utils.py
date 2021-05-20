@@ -110,8 +110,8 @@ def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
 
     df_noise1 = np.random.normal(size=(n_noise_samples, input_dim))
     df_noise2 = np.random.normal(size=(n_noise_samples, input_dim))
-    noise_below = MinMaxScaler(feature_range=(-3, normal_area[0]-1)).fit_transform(df_noise1)
-    noise_above = MinMaxScaler(feature_range=(normal_area[1]+1, 4)).fit_transform(df_noise2)
+    noise_below = MinMaxScaler(feature_range=(-6, normal_area[0]-1)).fit_transform(df_noise1)
+    noise_above = MinMaxScaler(feature_range=(normal_area[1]+1, 6)).fit_transform(df_noise2)
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
     return df_noise
 
