@@ -15,6 +15,7 @@ from tensorflow.python.keras.engine.functional import Functional
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from scipy.special import softmax
+from sklearn.decomposition import PCA
 
 from src.models.ARGUE.utils import *
 from src.models.ARGUE.network_utils import *
@@ -22,25 +23,33 @@ from src.config.definitions import *
 
 plt.style.use('seaborn')
 
+
 class ARGUELite:
+    """
+    ARGUELite is a light-weight, standalone version of the more complicated ARGUE anomaly detector.
+    It features
+    - a single autoencoder that reduces dimension and reconstructs data
+    - an alarm network that analyses hidden activation patterns from the autoencoder and
+      computes anomaly probability based on these
+    """
+
     def __init__(self,
                  input_dim: int = 3,
-                 number_of_decoders: int = 2,
                  latent_dim: int = 2,
                  verbose: int = 1,
                  ):
         self.input_dim = input_dim
-        self.number_of_decoders = number_of_decoders
+        self.number_of_decoders = 1
         self.latent_dim = latent_dim
         self.encoder = None
         self.decoder_dict = {}
         self.alarm = None
-        self.gating = None
         self.encoder_activation_dim = None
         self.decoder_activation_dim = None
         self.input_to_decoders = None
         self.input_to_alarm = None
         self.input_to_gating = None
+        self.input_to_activations = None
         self.history = None
         self.verbose = verbose
 
@@ -50,6 +59,16 @@ class ARGUELite:
         x = self.encoder.keras_model(inputs)
         outputs = decoder.keras_model(x)
         return Model(inputs, outputs, name=f"autoencoder_{decoder_number}")
+
+    def _connect_encoder_input_with_activations(self, decoder,
+                                                use_encoder_activations: bool = False):
+        inputs = self.encoder.keras_model.input
+        x = self.encoder.keras_model(inputs)
+        outputs = decoder.activation_model(x)
+        if use_encoder_activations:
+            y = self.encoder.activation_model(inputs)
+            outputs = tf.keras.layers.concatenate([outputs, y])
+        return Model(inputs, outputs, name=f"input_to_activations")
 
     def _connect_alarm_pair(self, decoder, use_encoder_activations: bool = False):
         decoder_number = decoder.name[8:]
@@ -62,12 +81,6 @@ class ARGUELite:
         outputs = self.alarm.keras_model(x)
         return Model(inputs, outputs, name=f"input_to_alarm_{decoder_number}")
 
-    def _connect_gating(self):
-        inputs = self.encoder.activation_model.input
-        x = self.encoder.activation_model(inputs)
-        outputs = self.gating.keras_model(x)
-        return Model(inputs, outputs, name="input_to_gating")
-
     def _make_non_trainable(self, submodel: str = None):
         if submodel == "autoencoders":
             self.encoder.keras_model.trainable = False
@@ -75,8 +88,6 @@ class ARGUELite:
                 network_object.keras_model.trainable = False
         elif submodel == "alarm":
             self.alarm.keras_model.trainable = False
-        elif submodel == "gating":
-            self.gating.keras_model.trainable = False
         else:
             pass
 
@@ -99,40 +110,29 @@ class ARGUELite:
         ae_metric_fn.update_state(x_batch_val, val_predictions)
         return loss_value
 
-    @tf.function
-    def _alarm_gating_validation_step(self, x_batch_val, true_gating, alarm_loss, gating_loss, final_loss,
-                                      alarm_metric, gating_metric, final_metric):
+    # @tf.function
+    def _alarm_gating_validation_step(self, x_batch_val, true_gating, alarm_loss, alarm_metric):
         true_alarm = 1 - true_gating[:, 1:]
         true_final = tf.reduce_min(true_alarm, axis=1)
-        predicted_alarm = tf.keras.layers.concatenate(self.input_to_alarm(x_batch_val, training=False))
-        alarm_and_ones = tf.concat([tf.ones((predicted_alarm.shape[0], 1)), predicted_alarm], axis=1)
-        predicted_gating = self.input_to_gating(x_batch_val, training=False)
-        predicted_prod = tf.multiply(predicted_gating, alarm_and_ones)
-        predicted_final = tf.reduce_sum(predicted_prod, axis=1)
+        predicted_alarm = self.input_to_alarm(x_batch_val, training=False)
 
         alarm_loss_value = alarm_loss(true_alarm, predicted_alarm)
-        gating_loss_value = gating_loss(true_gating, predicted_gating)
-        final_loss_value = final_loss(true_final, predicted_final)
         alarm_metric.update_state(true_alarm, predicted_alarm)
-        gating_metric.update_state(true_gating, predicted_gating)
-        final_metric.update_state(true_final, predicted_final)
-        return alarm_loss_value, gating_loss_value, final_loss_value, true_alarm, predicted_alarm
+        return alarm_loss_value, true_alarm, predicted_alarm
 
     @staticmethod
     def _init_loss_functions():
         ae_loss = tf.losses.BinaryCrossentropy()
-        alarm_loss = tf.losses.BinaryCrossentropy()  # BinaryCrossentropy()
-        gating_loss = tf.losses.CategoricalCrossentropy()
+        alarm_loss = tf.losses.BinaryCrossentropy()
         final_loss = tf.losses.BinaryCrossentropy()
-        return ae_loss, alarm_loss, gating_loss, final_loss
+        return ae_loss, alarm_loss, final_loss
 
     @staticmethod
     def _init_metric_functions():
         ae_metric = tf.metrics.MeanAbsoluteError()
         alarm_metric = tf.metrics.MeanAbsoluteError()
-        gating_metric = tf.metrics.MeanAbsoluteError()
         final_metric = tf.metrics.BinaryAccuracy()  # MeanAbsoluteError()
-        return ae_metric, alarm_metric, gating_metric, final_metric
+        return ae_metric, alarm_metric, final_metric
 
     @staticmethod
     def _init_optimizer(optimizer: str,
@@ -183,11 +183,9 @@ class ARGUELite:
                     encoder_hidden_layers: List[int] = [10, 8, 5],
                     decoders_hidden_layers: List[int] = [5, 8, 10],
                     alarm_hidden_layers: List[int] = [15, 12, 10],
-                    gating_hidden_layers: List[int] = [15, 12, 10],
                     encoder_activation: str = "tanh",
                     decoders_activation: str = "tanh",
                     alarm_activation: str = "tanh",
-                    gating_activation: str = "tanh",
                     all_activations: Optional[str] = None,
                     use_encoder_activations_in_alarm: bool = True,
                     use_latent_activations_in_encoder_activations: bool = True,
@@ -195,7 +193,6 @@ class ARGUELite:
                     encoder_dropout_frac: Optional[float] = None,
                     decoders_dropout_frac: Optional[float] = None,
                     alarm_dropout_frac: Optional[float] = None,
-                    gating_dropout_frac: Optional[float] = None,
                     make_model_visualiations: bool = False):
 
         # if all_activations is specified, the same activation function is used in all hidden layers
@@ -203,7 +200,6 @@ class ARGUELite:
             encoder_activation = all_activations
             decoders_activation = all_activations
             alarm_activation: all_activations
-            gating_activation: all_activations
 
         # build shared encoder
         self.encoder = Network(name="encoder").build_model(input_layer=Input(shape=(self.input_dim,)),
@@ -229,12 +225,6 @@ class ARGUELite:
                                                        activation=alarm_activation,
                                                        dropout_frac=alarm_dropout_frac)
 
-        self.gating = Network(name="gating").build_model(input_layer=Input(shape=(self.encoder_activation_dim,)),
-                                                         output_layer=Dense(self.number_of_decoders + 1, "softmax"),
-                                                         units_in_layers=gating_hidden_layers,
-                                                         activation=gating_activation,
-                                                         dropout_frac=gating_dropout_frac)
-
         alarm_outputs = []
         decoder_outputs = []
         for i in range(1, self.number_of_decoders + 1):
@@ -254,6 +244,8 @@ class ARGUELite:
             alarm_output_tensor = self._connect_alarm_pair(decoder, use_encoder_activations_in_alarm).output
             alarm_outputs.append(alarm_output_tensor)
 
+        self.input_to_activations = self._connect_encoder_input_with_activations(decoder,
+                                                                                 use_encoder_activations_in_alarm)
         self.input_to_decoders = Model(inputs=self.encoder.keras_model.input,
                                        outputs=decoder_outputs)
 
@@ -262,7 +254,6 @@ class ARGUELite:
 
         self.input_to_alarm = Model(inputs=self.encoder.keras_model.input,
                                     outputs=alarm_outputs)
-        self.input_to_gating = self._connect_gating()
 
         if make_model_visualiations:
             # if plot_model doesn't work, first pip install pydot, then pip install pydotplus, then go to:
@@ -281,13 +272,9 @@ class ARGUELite:
                                       show_shapes=True, show_layer_names=True)
             tf.keras.utils.plot_model(self.alarm.keras_model, to_file=figures_path / "alarm.png",
                                       show_shapes=True, show_layer_names=True)
-            tf.keras.utils.plot_model(self.gating.keras_model, to_file=figures_path / "gating.png",
-                                      show_shapes=True, show_layer_names=True)
             tf.keras.utils.plot_model(self.input_to_decoders, to_file=figures_path / "input_to_decoders.png",
                                       show_shapes=True, show_layer_names=True)
             tf.keras.utils.plot_model(self.input_to_alarm, to_file=figures_path / "input_to_alarm.png",
-                                      show_shapes=True, show_layer_names=True)
-            tf.keras.utils.plot_model(self.input_to_gating, to_file=figures_path / "input_to_gating.png",
                                       show_shapes=True, show_layer_names=True)
 
         vprint(self.verbose, f"\nARGUE networks built succesfully - properties: \n"
@@ -315,13 +302,9 @@ class ARGUELite:
             alarm_gating_learning_rate: float = 0.0001,
             autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
             alarm_decay_after_epochs: Optional[int] = None,
-            gating_decay_after_epochs: Optional[int] = None,
             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
-            fp_penalty: float = 0,
-            fp_tolerance: float = 0.3,
-            fn_penalty: float = 0,
-            fn_tolerance: float = 0.3):
+            plot_normal_vs_noise: bool = False):
 
         autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
         alarm_gating_epochs = epochs if alarm_gating_epochs is None else alarm_gating_epochs
@@ -338,10 +321,21 @@ class ARGUELite:
 
         # make gaussian noise samples so the optimization doesn't only see "healthy" data
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
-        # TODO revise noise distribution
-        x_noise = generate_noise_samples2(x_copy.drop(columns=["partition"]),
-                                          quantiles=[0.005, 0.995], stdev=noise_stdev,
-                                          stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
+        # TODO revise noise distribution or do it at runtime/training time instead (on the fly)
+        x_noise = generate_noise_samples(x_copy.drop(columns=["partition"]),
+                                         quantiles=[0.005, 0.995], stdev=noise_stdev,
+                                         stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
+
+        if plot_normal_vs_noise:
+            pca = PCA(2).fit(x_copy.drop(columns=["partition"]))
+            pca_train = pca.transform(x_copy.drop(columns=["partition"]))
+            pca_noise = pca.transform(x_noise)
+            plt.scatter(pca_noise[:, 0], pca_noise[:, 1], s=5, label="noise data")
+            plt.scatter(pca_train[:, 0], pca_train[:, 1], s=5, label="normal data")
+            plt.suptitle("PCA of normal data vs generated noise")
+            plt.legend()
+            plt.show()
+
         x_noise["partition"] = -1
         x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
@@ -354,144 +348,34 @@ class ARGUELite:
         x_train = x_train.reset_index(drop=True)
         x_val = x_val.reset_index(drop=True)
 
-        alarm_gating_val_batch_size = np.min([x_val.shape[0], 1024])
-        alarm_gating_train_dataset = tf.data.Dataset.from_tensor_slices(
-            (x_train.drop(columns="partition"), gating_train_labels))
-        alarm_gating_train_dataset = alarm_gating_train_dataset.shuffle(1024).batch(alarm_gating_batch_size,
-                                                                                    drop_remainder=True).prefetch(2)
-        alarm_gating_val_dataset = tf.data.Dataset.from_tensor_slices(
-            (x_val.drop(columns="partition"),
-             gating_val_labels))
-        alarm_gating_val_dataset = alarm_gating_val_dataset.batch(alarm_gating_val_batch_size,
-                                                                  drop_remainder=True).prefetch(2)
-        alarm_gating_number_of_batches = x_train.shape[0] // alarm_gating_batch_size
-
-        autoencoder_train_dataset_dict = {}
-        autoencoder_val_dataset_dict = {}
-        autoencoder_data_partition_sizes = []
-        for partition_number, data_partition in enumerate(unique_partitions):
-            train_dataset = x_train[x_train["partition"] == data_partition].drop(columns=["partition"])
-            val_dataset = x_val[x_val["partition"] == data_partition].drop(columns=["partition"])
-            train_dataset = shuffle(train_dataset)
-            val_dataset = shuffle(val_dataset)
-
-            autoencoder_batch_size = np.min([train_dataset.shape[0], autoencoder_batch_size])
-            ae_val_batch_size = np.min([val_dataset.shape[0], 1024])
-
-            ae_number_of_batches = train_dataset.shape[0] // autoencoder_batch_size
-            autoencoder_data_partition_sizes.append(train_dataset.shape[0])
-
-            train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
-            val_dataset = tf.data.Dataset.from_tensor_slices(val_dataset)
-
-            train_dataset = train_dataset.shuffle(1024).batch(autoencoder_batch_size,
-                                                              drop_remainder=True).prefetch(2)
-            val_dataset = val_dataset.batch(ae_val_batch_size, drop_remainder=True).prefetch(2)
-            autoencoder_train_dataset_dict[f"partition_{data_partition}"] = train_dataset
-            autoencoder_val_dataset_dict[f"partition_{data_partition}"] = val_dataset
-
-            vprint(self.verbose, f"Autoencoder data partition {partition_number} batch size: "
-                                 f"{autoencoder_batch_size}, number of batches (train set): {ae_number_of_batches}")
-
-        vprint(self.verbose, f"Alarm-gating batch size: {alarm_gating_batch_size}, "
-                             f"number of batches (train set): {alarm_gating_number_of_batches}")
-
-        # init loss and metric functions
-        ae_loss_fn, alarm_loss_fn, gating_loss_fn, final_loss_fn = self._init_loss_functions()
-        ae_metric_fn, alarm_metric_fn, gating_metric_fn, final_metric_fn = self._init_metric_functions()
-
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
         if autoencoder_decay_after_epochs is None:
             ae_optimizer = self._init_optimizer(optimizer=optimizer,
                                                 learning_rate=ae_learning_rate)
         else:
-            ae_dataset_rows = self.number_of_decoders * np.max(autoencoder_data_partition_sizes)
             ae_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
                                                                  initial_learning_rate=ae_learning_rate,
                                                                  decay_after_epochs=autoencoder_decay_after_epochs,
                                                                  decay_rate=decay_rate,
-                                                                 dataset_rows=ae_dataset_rows,
+                                                                 dataset_rows=x_train[x_train["partition"] == 1].shape[
+                                                                     0],
                                                                  batch_size=autoencoder_batch_size,
                                                                  total_epochs=autoencoder_epochs,
                                                                  plot_schedule=True)
 
-        @tf.function
-        def _ae_train_step(x_batch_train):
-            with tf.GradientTape() as tape:
-                predictions = ae_model(x_batch_train, training=True)
-                train_loss_value = ae_loss_fn(x_batch_train, predictions)
-            gradients = tape.gradient(train_loss_value, encoder_network_variables + decoder_variables)
-            ae_optimizer.apply_gradients(zip(gradients, encoder_network_variables + decoder_variables))
-            ae_metric_fn.update_state(x_batch_train, predictions)
-            return train_loss_value
-
         # train loop
         ae_model = self.input_to_decoders
-        encoder_network_variables = self.encoder.keras_model.trainable_variables
-        for epoch in range(1, autoencoder_epochs + 1):
-            epoch_start = time.time()
-            vprint(self.verbose, f"\n>> Epoch {epoch} - autoencoder ")
-            avg_ae_model_train_loss = []
-            avg_ae_model_train_metric = []
-            avg_ae_model_val_loss = []
-            avg_ae_model_val_metric = []
+        ae_model.trainable = True
 
-            # weight update loop
-            # TODO make naming of partitions standardized across datasets, or at least check if it matters
-            for partition, ae_train_dataset in autoencoder_train_dataset_dict.items():
-                ae_val_dataset = autoencoder_val_dataset_dict[partition]
+        ae_train_dataset = x_train[x_train["partition"] == 1].drop(columns=["partition"])
+        ae_val_dataset = x_val[x_val["partition"] == 1].drop(columns=["partition"])
 
-                epoch_train_loss = []
-                epoch_train_metric = []
-                epoch_val_loss = []
-                epoch_val_metric = []
-                vprint(self.verbose > 1, f"== Model: {partition[10:]}, training steps:")
-
-                # train loop:
-                decoder_variables = self._unfreeze_partition_decoder(partition)
-                for step, x_batch_train in enumerate(ae_train_dataset):
-                    ae_train_loss = _ae_train_step(x_batch_train)
-                    error_metric = ae_metric_fn.result()
-                    epoch_train_metric.append(error_metric)
-                    ae_metric_fn.reset_states()
-
-                    ae_train_loss = float(ae_train_loss)
-                    epoch_train_loss.append(ae_train_loss)
-                    if step % 2 == 0 and self.verbose > 2:
-                        print(f"Step {step} training loss: {ae_train_loss:.4f}, "
-                              f"MAE: {float(error_metric):.4f}")
-
-                # validation loop for the submodel
-                for x_batch_val in ae_val_dataset:
-                    ae_loss_value = self._ae_validation_step(x_batch_val, ae_model, ae_loss_fn, ae_metric_fn)
-                    epoch_val_loss.append(ae_loss_value)
-
-                    # NOTE: might need to be unindented
-                    val_metric = ae_metric_fn.result()
-                    epoch_val_metric.append(val_metric)
-                    ae_metric_fn.reset_states()
-
-                    vprint(self.verbose > 1, f"Model {partition[10:]} loss [train: {np.mean(epoch_train_loss):.4f}, "
-                                             f"val: {np.mean(epoch_val_loss):.4f}] "
-                                             f"| MAE [train: {np.mean(epoch_train_metric):.4f}, "
-                                             f"val: {np.mean(epoch_val_metric):.4f}]")
-                    avg_ae_model_train_loss.append(np.mean(epoch_train_loss))
-                    avg_ae_model_val_loss.append(np.mean(epoch_val_loss))
-                    avg_ae_model_train_metric.append(np.mean(epoch_train_metric))
-                    avg_ae_model_val_metric.append(np.mean(epoch_val_metric))
-            vprint(self.verbose, f"--- Average epoch loss [train: {np.mean(avg_ae_model_train_loss):.4f}, "
-                                 f"val: {np.mean(avg_ae_model_val_loss):.4f}] "
-                                 f"| Average model MAE [train: {np.mean(avg_ae_model_train_metric):.4f}, "
-                                 f"val: {np.mean(avg_ae_model_val_metric):.4f}]")
-            epoch_end = time.time()
-            epoch_time_elapsed = epoch_end - epoch_start
-            vprint(self.verbose, f"--- Time elapsed: {epoch_time_elapsed:.2f} seconds")
-            if autoencoder_decay_after_epochs is not None:
-                vprint(self.verbose and epoch % autoencoder_decay_after_epochs == 0,
-                       "\nReduced learning rate!\n")
-
-        self._make_non_trainable("autoencoders")
+        ae_model.compile(optimizer=ae_optimizer, loss="binary_crossentropy", metrics=["MAE"])
+        ae_model.fit(x=ae_train_dataset, y=ae_train_dataset, validation_data=(ae_val_dataset, ae_val_dataset),
+                     batch_size=autoencoder_batch_size,
+                     epochs=autoencoder_epochs)
+        ae_model.trainable = False
 
         # train alarm network
         vprint(self.verbose, "\n\n=== Phase 2: training alarm & gating networks ===")
@@ -499,8 +383,6 @@ class ARGUELite:
         # init optimizers
         if alarm_decay_after_epochs is None:
             alarm_optimizer = self._init_optimizer(optimizer=optimizer,
-                                                   learning_rate=alarm_gating_learning_rate)
-            final_optimizer = self._init_optimizer(optimizer=optimizer,
                                                    learning_rate=alarm_gating_learning_rate)
         else:
             alarm_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
@@ -511,190 +393,35 @@ class ARGUELite:
                                                                     batch_size=alarm_gating_batch_size,
                                                                     total_epochs=alarm_gating_epochs,
                                                                     plot_schedule=True)
-            final_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
-                                                                    initial_learning_rate=alarm_gating_learning_rate,
-                                                                    decay_after_epochs=alarm_decay_after_epochs,
-                                                                    decay_rate=decay_rate,
-                                                                    dataset_rows=x_train.shape[0],
-                                                                    batch_size=alarm_gating_batch_size,
-                                                                    total_epochs=alarm_gating_epochs,
-                                                                    plot_schedule=False)
-        if gating_decay_after_epochs is None:
-            gating_optimizer = self._init_optimizer(optimizer=optimizer,
-                                                    learning_rate=alarm_gating_learning_rate)
-        else:
-            gating_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
-                                                                     initial_learning_rate=alarm_gating_learning_rate,
-                                                                     decay_after_epochs=gating_decay_after_epochs,
-                                                                     decay_rate=decay_rate,
-                                                                     dataset_rows=x_train.shape[0],
-                                                                     batch_size=alarm_gating_batch_size,
-                                                                     total_epochs=alarm_gating_epochs,
-                                                                     plot_schedule=True)
 
         # training loop
-        gating_model = self.input_to_gating
-        alarm_model = self.input_to_alarm
-        gating_network_variables = self.gating.keras_model.trainable_variables
-        alarm_network_variables = self.alarm.keras_model.trainable_variables
+        alarm_train_dataset = self.input_to_activations.predict(x_train.drop(columns=["partition"]))
+        alarm_val_dataset = self.input_to_activations.predict(x_val.drop(columns=["partition"]))
 
-        @tf.function
-        def _alarm_gating_train_step(x_batch_train, true_gating):
-            true_alarm = 1 - true_gating[:, 1:]
-            true_final = tf.cast(tf.reduce_min(true_alarm, axis=1), "float32")
+        alarm_model = self.alarm.keras_model
+        # alarm_model = self.input_to_alarm
+        #
+        # alarm_train_dataset = x_train.drop(columns=["partition"])
+        # alarm_val_dataset = x_val.drop(columns=["partition"])
 
-            # update alarm model
-            with tf.GradientTape() as tape:
-                predicted_alarm = tf.keras.layers.concatenate(alarm_model(x_batch_train, training=True))
-                alarm_loss_value = alarm_loss_fn(true_alarm, predicted_alarm)
-            gradients = tape.gradient(alarm_loss_value, alarm_network_variables)
-            alarm_optimizer.apply_gradients(zip(gradients, alarm_network_variables))
+        alarm_train_labels = 1 - gating_train_labels[:, 1:]
+        alarm_val_labels = 1 - gating_val_labels[:, 1:]
 
-            # update gating model
-            with tf.GradientTape() as tape:
-                predicted_gating = gating_model(x_batch_train, training=True)
-                gating_loss_value = gating_loss_fn(true_gating, predicted_gating)
-            gradients = tape.gradient(gating_loss_value, gating_network_variables)
-            gating_optimizer.apply_gradients(zip(gradients, gating_network_variables))
-
-            # update the whole model
-            with tf.GradientTape() as tape:
-                predicted_alarm = alarm_model(x_batch_train, training=True)
-                predicted_alarm = tf.keras.layers.concatenate(predicted_alarm)
-                predicted_alarm_and_ones = tf.keras.layers.concatenate([tf.ones((predicted_alarm.shape[0], 1)),
-                                                                        predicted_alarm])
-                predicted_gating = gating_model(x_batch_train, training=True)
-                predicted_product = tf.keras.layers.multiply([predicted_gating, predicted_alarm_and_ones])
-                predicted_final = tf.keras.layers.Lambda(lambda x: tf.reduce_sum(x, axis=1))(predicted_product)
-
-                # control false positve penalty using max(0, p-y) = relu(p-y) as regularizing term.
-                # will only be positive for true_final = 0, and 0 if it's 1
-                fp_term = tf.keras.activations.relu(predicted_final - true_final - fp_tolerance)
-                false_positive_loss = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x))(fp_term)
-                # will only be positive for true_final = 1, and 0 if it's 1
-                # the tolerance is the acceptable prediction error before the penalty is applied,
-                # e.g. if true_final = 1, predicted_final = 0.7 and fn_tolerance is 0.4, no penalty is applied
-                fn_term = tf.keras.activations.relu(true_final - predicted_final - fn_tolerance)
-                false_negative_loss = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x))(fn_term)
-                final_loss_value = final_loss_fn(true_final, predicted_final) + \
-                                   fp_penalty * false_positive_loss + fn_penalty * false_negative_loss
-            gradients = tape.gradient(final_loss_value, alarm_network_variables + gating_network_variables)
-            final_optimizer.apply_gradients(zip(gradients,
-                                                alarm_network_variables + gating_network_variables))
-
-            alarm_metric_fn.update_state(true_alarm, predicted_alarm)
-            gating_metric_fn.update_state(true_gating, predicted_gating)
-            # predicted_final = tf.constant([0])
-            # final_loss_value = tf.constant([0])
-            final_metric_fn.update_state(true_final, predicted_final)
-            return alarm_loss_value, gating_loss_value, final_loss_value
-
-        # alarm & gating training loop
-        for epoch in range(1, alarm_gating_epochs + 1):
-            epoch_start = time.time()
-            vprint(self.verbose, f"\n>> Epoch {epoch} - alarm & gating")
-            alarm_epoch_train_loss = []
-            alarm_epoch_train_metric = []
-            alarm_epoch_val_loss = []
-            alarm_epoch_val_metric = []
-            alarm_epoch_sparsity = []
-            gating_epoch_train_loss = []
-            gating_epoch_train_metric = []
-            gating_epoch_val_loss = []
-            gating_epoch_val_metric = []
-            final_epoch_train_loss = []
-            final_epoch_train_metric = []
-            final_epoch_val_loss = []
-            final_epoch_val_metric = []
-
-            # weight update loop
-            for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
-                alarm_loss_value, gating_loss_value, final_loss_value = _alarm_gating_train_step(
-                    x_batch_train, true_gating)
-                alarm_epoch_train_loss.append(alarm_loss_value)
-                gating_epoch_train_loss.append(gating_loss_value)
-                final_epoch_train_loss.append(final_loss_value)
-
-                alarm_epoch_train_metric.append(alarm_metric_fn.result())
-                gating_epoch_train_metric.append(gating_metric_fn.result())
-                final_epoch_train_metric.append(final_metric_fn.result())
-                alarm_metric_fn.reset_states()
-                gating_metric_fn.reset_states()
-                final_metric_fn.reset_states()
-
-                vprint(step % 100 == 0 and self.verbose == 2,
-                       f"\nStep: {step} - "
-                       f"Batch loss - Alarm: {float(alarm_loss_value):.4f}, "
-                       f"Gating: {float(gating_loss_value):.4f}")
-                vprint(step % 20 == 0 and self.verbose > 2,
-                       f"\nStep: {step} - "
-                       f"Batch loss - Alarm: {float(alarm_loss_value):.4f}, "
-                       f"Gating: {float(gating_loss_value):.4f}")
-
-            # end of epoch validation loop
-            for (x_batch_val, true_gating) in alarm_gating_val_dataset:
-                alarm_loss_value, gating_loss_value, final_loss_value, true_alarm, predicted_alarm = \
-                    self._alarm_gating_validation_step(x_batch_val, true_gating, alarm_loss_fn,
-                                                       gating_loss_fn, final_loss_fn, alarm_metric_fn,
-                                                       gating_metric_fn, final_metric_fn)
-                alarm_epoch_val_loss.append(alarm_loss_value)
-                gating_epoch_val_loss.append(gating_loss_value)
-                final_epoch_val_loss.append(final_loss_value)
-
-                alarm_epoch_val_metric.append(alarm_metric_fn.result())
-                gating_epoch_val_metric.append(gating_metric_fn.result())
-                final_epoch_val_metric.append(final_metric_fn.result())
-                alarm_epoch_sparsity.append(check_alarm_sparsity(true_alarm, predicted_alarm))
-                alarm_metric_fn.reset_states()
-                gating_metric_fn.reset_states()
-                final_metric_fn.reset_states()
-
-            vprint(self.verbose, f"--- Alarm loss  [train: {np.mean(alarm_epoch_train_loss):.4f}, "
-                                 f"val: {np.mean(alarm_epoch_val_loss):.4f}] "
-                                 f"| MAE      [train: {np.mean(alarm_epoch_train_metric):.4f}, "
-                                 f"val: {np.mean(alarm_epoch_val_metric):.4f}, "
-                                 f"sparsity: {np.mean(alarm_epoch_sparsity):.4f}]")
-            vprint(self.verbose, f"--- Gating loss [train: {np.mean(gating_epoch_train_loss):.4f}, "
-                                 f"val: {np.mean(gating_epoch_val_loss):.4f}] "
-                                 f"| MAE      [train: {np.mean(gating_epoch_train_metric):.4f}, "
-                                 f"val: {np.mean(gating_epoch_val_metric):.4f}]")
-            vprint(self.verbose, f"--- Final loss  [train: {np.mean(final_epoch_train_loss):.4f}, "
-                                 f"val: {np.mean(final_epoch_val_loss):.4f}] "
-                                 f"| Accuracy [train: {np.mean(final_epoch_train_metric):.4f}, "
-                                 f"val: {np.mean(final_epoch_val_metric):.4f}]"
-                   )
-            epoch_end = time.time()
-            epoch_time_elapsed = epoch_end - epoch_start
-            vprint(self.verbose, f"--- Time elapsed: {epoch_time_elapsed:.2f} seconds")
-
-        self._make_non_trainable("alarm")
-        self._make_non_trainable("gating")
-
+        alarm_model.compile(optimizer=alarm_optimizer, loss="binary_crossentropy", metrics=["MAE"])
+        start = time.time()
+        alarm_model.fit(x=alarm_train_dataset, y=alarm_train_labels,
+                        validation_data=(alarm_val_dataset, alarm_val_labels),
+                        batch_size=alarm_gating_batch_size,
+                        epochs=alarm_gating_epochs)
+        end = time.time()
+        print(f"Alarm fit time elapsed: {end - start:.2f} seconds")
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
 
     def predict(self, x: DataFrame):
-        gating_vector = self.predict_gating_weights(x)
-        alarm_vector = self.predict_alarm_probabilities(x)
-        # predictions = alarm_vector.min(axis=0) # use this to test model without gating
-
-        # stack the virtual decision vector on top of the alarm verdicts vector
-        alarm_vector = np.vstack([np.ones((1, x.shape[0])), alarm_vector]).transpose()
-
-        # compute final weighted average anomaly score
-        predictions = np.multiply(gating_vector, alarm_vector).sum(axis=1)
-        return predictions
-
-    def predict_gating_weights(self, x):
-        return self.input_to_gating.predict(x)  # .reshape((-1, self.number_of_decoders + 1))
-
-    def predict_alarm_probabilities(self, x: DataFrame):
-        alarm_vector = self.input_to_alarm.predict(x)
-        alarm_vector = np.stack(alarm_vector).reshape((self.number_of_decoders, -1))
-        return alarm_vector
+        return self.input_to_alarm.predict(x)
 
     def predict_plot_anomalies(self,
                                x,
-                               true_partitions: Optional[List[int]] = None,
                                window_length: Optional[Union[int, List[int]]] = None,
                                **kwargs):
         df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
@@ -716,9 +443,6 @@ class ARGUELite:
             plt.legend()
             return fig, ax
 
-        if true_partitions:
-            df_preds["partition"] = true_partitions
-
         df_preds.index = pd.to_datetime(df_preds.index)
         df_preds.index = df_preds.index.map(lambda t: t.strftime("%d-%m-%Y"))
         fig = df_preds.plot(subplots=True, rot=15, color=["#4099DA", "red"], **kwargs)
@@ -739,11 +463,8 @@ class ARGUELite:
 
         # determine the decoder best suited for reconstructing each datapoint and only choose
         # that one's predictions/reconstructions
-        best_decoder = self.predict_gating_weights(x)[:, 1:].argmax(axis=1)
-        row_number = np.arange(best_decoder.shape[0])
-        reconstructions = np.stack(self.input_to_decoders.predict(x), axis=0)
-        final_reconstructions = reconstructions[best_decoder, row_number, :]
-        final_reconstructions = pd.DataFrame(final_reconstructions,
+        reconstructions = self.input_to_decoders.predict(x)
+        final_reconstructions = pd.DataFrame(reconstructions,
                                              columns=x.columns,
                                              index=x.index)
         return final_reconstructions

@@ -1,9 +1,10 @@
 import os
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
-from src.models.ARGUE.argue import ARGUE
+from src.models.ARGUE.argue_lite import ARGUELite
 from src.models.ARGUE.utils import *
 from src.data.data_utils import *
 
@@ -32,48 +33,44 @@ if __name__ == "__main__":
                                      "2020-09-14 23:59:59"]])
     df_test = get_df_with_bad_data(df_train, df_raw)
     # df_test = df_raw.loc["2020-09-15":]
-    df_test.plot(subplots=True, rot=5)
-    plt.suptitle("SSV Feedwater pump 30 temperature tags")
-    plt.show()
+    # df_test.plot(subplots=True, rot=5)
+    # plt.suptitle("SSV Feedwater pump 30 temperature tags")
+    # plt.show()
 
     # scale the data and partition it into classes
     scaler = MinMaxScaler().fit(df_train)
     df_train = pd.DataFrame(scaler.transform(df_train), columns=df_train.columns, index=df_train.index)
     df_test = pd.DataFrame(scaler.transform(df_test), columns=df_test.columns, index=df_test.index)
-    df_train = partition_by_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 0.5, 1])
+    df_train = partition_by_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 1])
 
     # Train ARGUE
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
     model_path = get_model_archive_path() / "ARGUE_SSV_FWP30"
     if USE_SAVED_MODEL:
-        model = ARGUE().load(model_path)
+        model = ARGUELite().load(model_path)
     else:
         # call and fit model
-        model = ARGUE(input_dim=len(df_train.columns[:-1]),  # TODO revise input dims with partition etc to be easier
-                      number_of_decoders=len(df_train["partition"].unique()),
-                      latent_dim=2, verbose=1)
-        model.build_model(encoder_hidden_layers=[80, 70, 60, 50, 40, 30, 20, 15, 10, 5],
-                          decoders_hidden_layers=[5, 10, 15, 20, 30, 40, 50, 60, 70, 80],
-                          alarm_hidden_layers=[1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 50, 20, 5],
-                          gating_hidden_layers=[1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 50, 20, 10],
+        model = ARGUELite(input_dim=len(df_train.columns[:-1]),
+                          latent_dim=2, verbose=1)
+        model.build_model(encoder_hidden_layers=[30, 25, 20, 15, 10, 5],
+                          decoders_hidden_layers=[5, 10, 15, 20, 25, 30],
+                          alarm_hidden_layers=[200, 100, 50, 20, 5],
                           all_activations="tanh",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
                           use_decoder_outputs_in_decoder_activations=True,
-                          encoder_dropout_frac=0.1,
-                          decoders_dropout_frac=0.1,
-                          alarm_dropout_frac=0.1,
-                          gating_dropout_frac=0.1)
+                          encoder_dropout_frac=None,
+                          decoders_dropout_frac=None,
+                          alarm_dropout_frac=None)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=3,
-                  batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
+                  epochs=None, autoencoder_epochs=400, alarm_gating_epochs=200,
+                  batch_size=None, autoencoder_batch_size=1024, alarm_gating_batch_size=2048,
                   optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.0001,
-                  autoencoder_decay_after_epochs=None,
-                  alarm_decay_after_epochs=None,
-                  gating_decay_after_epochs=None,
-                  decay_rate=0.5, fp_penalty=0, fn_penalty=0,
-                  validation_split=0.2,
+                  autoencoder_decay_after_epochs=100,
+                  alarm_decay_after_epochs=100,
+                  decay_rate=0.5,
+                  validation_split=0.1,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
         # model.save(model_path)
 
@@ -98,9 +95,4 @@ if __name__ == "__main__":
     plt.show()
 
     y_pred = model.predict(df_test)
-    alarm = model.predict_alarm_probabilities(df_test)
-
-    gating = model.predict_gating_weights(df_test)
-    print("Alarm probs: \n", np.round(alarm, 3))
-    print("Gating weights: \n", np.round(gating, 3))
     print("Final predictions: \n", np.round(y_pred, 3))
