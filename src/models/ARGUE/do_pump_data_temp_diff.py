@@ -53,27 +53,26 @@ if __name__ == "__main__":
         model = ARGUE(input_dim=len(df_train.columns[:-1]),  # TODO revise input dims with partition etc to be easier
                       number_of_decoders=len(df_train["partition"].unique()),
                       latent_dim=2, verbose=1)
-        model.build_model(encoder_hidden_layers=[80, 70, 60, 50, 40, 30, 20, 15, 10, 5],
-                          decoders_hidden_layers=[5, 10, 15, 20, 30, 40, 50, 60, 70, 80],
-                          alarm_hidden_layers=[1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 50, 20, 5],
-                          gating_hidden_layers=[1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 50, 20, 10],
+        model.build_model(encoder_hidden_layers=[30, 25, 20, 15, 10, 5],
+                          decoders_hidden_layers=[5, 10, 15, 20, 25, 30],
+                          alarm_hidden_layers=[200, 100, 50, 20, 5],
                           all_activations="tanh",
                           use_encoder_activations_in_alarm=True,
                           use_latent_activations_in_encoder_activations=True,
                           use_decoder_outputs_in_decoder_activations=True,
-                          encoder_dropout_frac=0.1,
-                          decoders_dropout_frac=0.1,
-                          alarm_dropout_frac=0.1,
-                          gating_dropout_frac=0.1)
+                          encoder_dropout_frac=None,
+                          decoders_dropout_frac=None,
+                          alarm_dropout_frac=None,
+                          gating_dropout_frac=None)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=5, alarm_gating_epochs=3,
-                  batch_size=None, autoencoder_batch_size=256, alarm_gating_batch_size=256,
+                  epochs=None, autoencoder_epochs=400, alarm_gating_epochs=200,
+                  batch_size=None, autoencoder_batch_size=1024, alarm_gating_batch_size=2048,
                   optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.0001,
-                  autoencoder_decay_after_epochs=None,
-                  alarm_decay_after_epochs=None,
+                  autoencoder_decay_after_epochs=100,
+                  alarm_decay_after_epochs=100,
                   gating_decay_after_epochs=None,
-                  decay_rate=0.5, fp_penalty=0, fn_penalty=0,
-                  validation_split=0.2,
+                  decay_rate=0.5,
+                  validation_split=0.1,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
         # model.save(model_path)
 

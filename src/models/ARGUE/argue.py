@@ -5,6 +5,7 @@ from typing import Dict, Optional, Collection
 
 import numpy as np
 import pandas as pd
+from sklearn.decomposition import PCA
 from tqdm import tqdm
 from pandas import DataFrame
 from sklearn.utils import shuffle
@@ -346,7 +347,8 @@ class ARGUE:
             fp_penalty: float = 0,
             fp_tolerance: float = 0.3,
             fn_penalty: float = 0,
-            fn_tolerance: float = 0.3):
+            fn_tolerance: float = 0.3,
+            plot_normal_vs_noise: bool = False):
 
         autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
         alarm_gating_epochs = epochs if alarm_gating_epochs is None else alarm_gating_epochs
@@ -367,6 +369,17 @@ class ARGUE:
         x_noise = generate_noise_samples2(x_copy.drop(columns=["partition"]),
                                           quantiles=[0.005, 0.995], stdev=noise_stdev,
                                           stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
+
+        if plot_normal_vs_noise:
+            pca = PCA(2).fit(x_copy.drop(columns=["partition"]))
+            pca_train = pca.transform(x_copy.drop(columns=["partition"]))
+            pca_noise = pca.transform(x_noise)
+            plt.scatter(pca_noise[:, 0], pca_noise[:, 1], s=5, label="noise data")
+            plt.scatter(pca_train[:, 0], pca_train[:, 1], s=5, label="normal data")
+            plt.suptitle("PCA of normal data vs generated noise")
+            plt.legend()
+            plt.show()
+
         x_noise["partition"] = -1
         x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)

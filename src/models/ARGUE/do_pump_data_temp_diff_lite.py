@@ -17,6 +17,7 @@ from src.data.data_utils import *
 #    - do clustering using Kmeans or DBSCAN
 
 if __name__ == "__main__":
+    print("GPU: ", tf.test.is_gpu_available())
     tf.random.set_seed(1234)
     np.random.seed(1234)
     # load dataset

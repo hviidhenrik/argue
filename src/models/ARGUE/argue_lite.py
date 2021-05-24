@@ -285,6 +285,29 @@ class ARGUELite:
                              f"  > Number of decoders: {self.number_of_decoders}\n")
         return self
 
+    def fit2(self,
+             x: Union[DataFrame, np.ndarray],
+             partition_labels: Union[DataFrame, List[int]],
+             validation_split: float = 0.1,
+             batch_size: Optional[int] = 128,
+             autoencoder_batch_size: Optional[int] = None,
+             alarm_gating_batch_size: Optional[int] = None,
+             epochs: Optional[int] = 100,
+             autoencoder_epochs: Optional[int] = None,
+             alarm_gating_epochs: Optional[int] = None,
+             n_noise_samples: Optional[int] = None,
+             noise_stdevs_away: float = 3.0,
+             noise_stdev: float = 1.0,
+             ae_learning_rate: Union[float, List[float]] = 0.0001,
+             alarm_gating_learning_rate: float = 0.0001,
+             autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
+             alarm_decay_after_epochs: Optional[int] = None,
+             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
+             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
+             plot_normal_vs_noise: bool = False):
+
+        pass
+
     def fit(self,
             x: Union[DataFrame, np.ndarray],
             partition_labels: Union[DataFrame, List[int]],
@@ -315,62 +338,30 @@ class ARGUELite:
         unique_partitions = np.unique(list(partition_labels))
         vprint(self.verbose, "Preparing data: slicing into partitions and batches...\n"
                              f"Data dimensions: {x.shape}")
-        x_copy = x.copy()
-        x_copy = pd.concat([x_copy, partition_labels], axis=1)
-        x_copy = x_copy.rename(columns={x_copy.columns[-1]: "partition"})
 
-        # make gaussian noise samples so the optimization doesn't only see "healthy" data
-        # and hence just learns to always predict healthy, i.e. P(healthy) = certain
-        # TODO revise noise distribution or do it at runtime/training time instead (on the fly)
-        x_noise = generate_noise_samples(x_copy.drop(columns=["partition"]),
-                                         quantiles=[0.005, 0.995], stdev=noise_stdev,
-                                         stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
-
-        if plot_normal_vs_noise:
-            pca = PCA(2).fit(x_copy.drop(columns=["partition"]))
-            pca_train = pca.transform(x_copy.drop(columns=["partition"]))
-            pca_noise = pca.transform(x_noise)
-            plt.scatter(pca_noise[:, 0], pca_noise[:, 1], s=5, label="noise data")
-            plt.scatter(pca_train[:, 0], pca_train[:, 1], s=5, label="normal data")
-            plt.suptitle("PCA of normal data vs generated noise")
-            plt.legend()
-            plt.show()
-
-        x_noise["partition"] = -1
-        x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
-        x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
-
-        # get one hot encodings of the partitions to use as labels for the gating network
-        gating_label_vectors = pd.get_dummies(x_with_noise_and_labels["partition"]).values
-        x_train, x_val, gating_train_labels, gating_val_labels = train_test_split(x_with_noise_and_labels,
-                                                                                  gating_label_vectors,
-                                                                                  test_size=validation_split)
-        x_train = x_train.reset_index(drop=True)
-        x_val = x_val.reset_index(drop=True)
-
-        # first train encoder and decoders
-        vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
-        if autoencoder_decay_after_epochs is None:
-            ae_optimizer = self._init_optimizer(optimizer=optimizer,
-                                                learning_rate=ae_learning_rate)
-        else:
-            ae_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
-                                                                 initial_learning_rate=ae_learning_rate,
-                                                                 decay_after_epochs=autoencoder_decay_after_epochs,
-                                                                 decay_rate=decay_rate,
-                                                                 dataset_rows=x_train[x_train["partition"] == 1].shape[
-                                                                     0],
-                                                                 batch_size=autoencoder_batch_size,
-                                                                 total_epochs=autoencoder_epochs,
-                                                                 plot_schedule=True)
-
-        # train loop
-        ae_model = self.input_to_decoders
-        ae_model.trainable = True
-
+        # make datasets ready
+        gating_train_labels, gating_val_labels, x_train, x_val = self._prepare_data(n_noise_samples, noise_stdev,
+                                                                                    noise_stdevs_away, partition_labels,
+                                                                                    plot_normal_vs_noise,
+                                                                                    validation_split, x)
         ae_train_dataset = x_train[x_train["partition"] == 1].drop(columns=["partition"])
         ae_val_dataset = x_val[x_val["partition"] == 1].drop(columns=["partition"])
+        alarm_train_dataset = self.input_to_activations.predict(x_train.drop(columns=["partition"]))
+        alarm_val_dataset = self.input_to_activations.predict(x_val.drop(columns=["partition"]))
+        alarm_train_labels = 1 - gating_train_labels[:, 1:]
+        alarm_val_labels = 1 - gating_val_labels[:, 1:]
 
+        ae_optimizer = self._init_optimizer_wrapper(autoencoder_decay_after_epochs, autoencoder_batch_size,
+                                                    autoencoder_epochs, ae_learning_rate, decay_rate,
+                                                    optimizer, x_train)
+        alarm_optimizer = self._init_optimizer_wrapper(alarm_decay_after_epochs, alarm_gating_batch_size,
+                                                       alarm_gating_epochs, alarm_gating_learning_rate, decay_rate,
+                                                       optimizer, x_train)
+
+        # training loops
+        vprint(self.verbose, "\n\n=== Phase 1: training autoencoder ===")
+        ae_model = self.input_to_decoders
+        ae_model.trainable = True
         ae_model.compile(optimizer=ae_optimizer, loss="binary_crossentropy", metrics=["MAE"])
         ae_model.fit(x=ae_train_dataset, y=ae_train_dataset, validation_data=(ae_val_dataset, ae_val_dataset),
                      batch_size=autoencoder_batch_size,
@@ -378,35 +369,8 @@ class ARGUELite:
         ae_model.trainable = False
 
         # train alarm network
-        vprint(self.verbose, "\n\n=== Phase 2: training alarm & gating networks ===")
-
-        # init optimizers
-        if alarm_decay_after_epochs is None:
-            alarm_optimizer = self._init_optimizer(optimizer=optimizer,
-                                                   learning_rate=alarm_gating_learning_rate)
-        else:
-            alarm_optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer,
-                                                                    initial_learning_rate=alarm_gating_learning_rate,
-                                                                    decay_after_epochs=alarm_decay_after_epochs,
-                                                                    decay_rate=decay_rate,
-                                                                    dataset_rows=x_train.shape[0],
-                                                                    batch_size=alarm_gating_batch_size,
-                                                                    total_epochs=alarm_gating_epochs,
-                                                                    plot_schedule=True)
-
-        # training loop
-        alarm_train_dataset = self.input_to_activations.predict(x_train.drop(columns=["partition"]))
-        alarm_val_dataset = self.input_to_activations.predict(x_val.drop(columns=["partition"]))
-
+        vprint(self.verbose, "\n\n=== Phase 2: training alarm network ===")
         alarm_model = self.alarm.keras_model
-        # alarm_model = self.input_to_alarm
-        #
-        # alarm_train_dataset = x_train.drop(columns=["partition"])
-        # alarm_val_dataset = x_val.drop(columns=["partition"])
-
-        alarm_train_labels = 1 - gating_train_labels[:, 1:]
-        alarm_val_labels = 1 - gating_val_labels[:, 1:]
-
         alarm_model.compile(optimizer=alarm_optimizer, loss="binary_crossentropy", metrics=["MAE"])
         start = time.time()
         alarm_model.fit(x=alarm_train_dataset, y=alarm_train_labels,
@@ -416,6 +380,55 @@ class ARGUELite:
         end = time.time()
         print(f"Alarm fit time elapsed: {end - start:.2f} seconds")
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
+
+    def _init_optimizer_wrapper(self, decay_after_epochs, batch_size, epochs,
+                                learning_rate, decay_rate, optimizer_object, x_train):
+        if decay_after_epochs is None:
+            optimizer = self._init_optimizer(optimizer=optimizer_object,
+                                             learning_rate=learning_rate)
+        else:
+            optimizer = self._init_optimizer_with_lr_schedule(optimizer=optimizer_object,
+                                                              initial_learning_rate=learning_rate,
+                                                              decay_after_epochs=decay_after_epochs,
+                                                              decay_rate=decay_rate,
+                                                              dataset_rows=x_train.shape[0],
+                                                              batch_size=batch_size,
+                                                              total_epochs=epochs,
+                                                              plot_schedule=True)
+        return optimizer
+
+    @staticmethod
+    def _prepare_data(n_noise_samples, noise_stdev, noise_stdevs_away, partition_labels, plot_normal_vs_noise,
+                      validation_split, x):
+        x_copy = x.copy()
+        x_copy = pd.concat([x_copy, partition_labels], axis=1)
+        x_copy = x_copy.rename(columns={x_copy.columns[-1]: "partition"})
+        # make gaussian noise samples so the optimization doesn't only see "healthy" data
+        # and hence just learns to always predict healthy, i.e. P(healthy) = certain
+        # TODO revise noise distribution or do it at runtime/training time instead (on the fly)
+        x_noise = generate_noise_samples(x_copy.drop(columns=["partition"]),
+                                         quantiles=[0.005, 0.995], stdev=noise_stdev,
+                                         stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
+        if plot_normal_vs_noise:
+            pca = PCA(2).fit(x_copy.drop(columns=["partition"]))
+            pca_train = pca.transform(x_copy.drop(columns=["partition"]))
+            pca_noise = pca.transform(x_noise)
+            plt.scatter(pca_noise[:, 0], pca_noise[:, 1], s=5, label="noise data")
+            plt.scatter(pca_train[:, 0], pca_train[:, 1], s=5, label="normal data")
+            plt.suptitle("PCA of normal data vs generated noise")
+            plt.legend()
+            plt.show()
+        x_noise["partition"] = -1
+        x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
+        x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
+        # get one hot encodings of the partitions to use as labels for the gating network
+        gating_label_vectors = pd.get_dummies(x_with_noise_and_labels["partition"]).values
+        x_train, x_val, gating_train_labels, gating_val_labels = train_test_split(x_with_noise_and_labels,
+                                                                                  gating_label_vectors,
+                                                                                  test_size=validation_split)
+        x_train = x_train.reset_index(drop=True)
+        x_val = x_val.reset_index(drop=True)
+        return gating_train_labels, gating_val_labels, x_train, x_val
 
     def predict(self, x: DataFrame):
         return self.input_to_alarm.predict(x)

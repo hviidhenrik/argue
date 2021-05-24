@@ -40,7 +40,7 @@ if __name__ == "__main__":
                           make_model_visualiations=False
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=1000, alarm_gating_epochs=400,
+                  epochs=None, autoencoder_epochs=10, alarm_gating_epochs=10,
                   batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
                   optimizer="adam",
                   ae_learning_rate=0.0001,
@@ -49,7 +49,8 @@ if __name__ == "__main__":
                   alarm_decay_after_epochs=None,
                   decay_rate=0.5,
                   validation_split=1/5,
-                  n_noise_samples=None)
+                  n_noise_samples=None,
+                  plot_normal_vs_noise=True)
         # model.save(model_path)
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
