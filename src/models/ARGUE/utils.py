@@ -96,7 +96,7 @@ def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = Non
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
     return df_noise
 
-
+# note: another modified noise generator
 def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
                             **kwargs):
     input_dim = pd.DataFrame(x).shape[1]

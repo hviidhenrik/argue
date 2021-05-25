@@ -37,10 +37,10 @@ if __name__ == "__main__":
                           encoder_dropout_frac=None,
                           decoders_dropout_frac=None,
                           alarm_dropout_frac=None,
-                          make_model_visualiations=False
+                          make_model_visualiations=True
                           )
         model.fit(x_train.drop(columns=["partition"]),
-                  epochs=20,
+                  epochs=2,
                   batch_size=1,
                   optimizer="adam",
                   learning_rate=0.0001,
@@ -48,6 +48,7 @@ if __name__ == "__main__":
                   decay_rate=0.5,
                   validation_split=1 / 5,
                   n_noise_samples=None,
+                  plot_training_history=True,
                   plot_normal_vs_noise=False)
         # model.save(model_path)
 
