@@ -247,7 +247,7 @@ class ARGUELite:
                     autoencoder_l1: Optional[float] = None,
                     autoencoder_l2: Optional[float] = None,
                     alarm_l1: Optional[float] = None,
-                    alarm_l2: Optional[float] = None,):
+                    alarm_l2: Optional[float] = None, ):
 
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
@@ -363,7 +363,13 @@ class ARGUELite:
             alarm_decay_after_epochs: Optional[int] = None,
             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
-            plot_normal_vs_noise: bool = False):
+            plot_normal_vs_noise: bool = False,
+            stop_early: bool = False,
+            stop_early_patience: int = 15,
+            reduce_lr_on_plateau: bool = False,
+            reduce_lr_by_factor: float = 0.5,
+            reduce_lr_patience: int = 10,
+            noise_factor: float = 0.0):
 
         start = time.time()
         autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
@@ -392,13 +398,33 @@ class ARGUELite:
         ae_model = self.input_to_decoders
         alarm_model = self.alarm.keras_model
 
+        callbacks = []
+        # callbacks.append(tf.keras.callbacks.TensorBoard(log_dir="./logs", histogram_freq=5))
+        if stop_early:
+            callbacks.append(
+                tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=stop_early_patience,
+                                                 restore_best_weights=True, mode="min"))
+        if reduce_lr_on_plateau:
+            callbacks.append(tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=reduce_lr_by_factor,
+                                                                  patience=reduce_lr_patience, verbose=1,
+                                                                  mode="min"))
+
+        ae_train_dataset_noisy = ae_train_dataset + noise_factor * np.random.normal(loc=0.0,
+                                                                                    scale=1.0,
+                                                                                    size=ae_train_dataset.shape)
+        ae_val_dataset_noisy = ae_val_dataset + noise_factor * np.random.normal(loc=0.0,
+                                                                                scale=1.0,
+                                                                                size=ae_val_dataset.shape)
+
         # train autoencoder
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder ===")
         ae_model.trainable = True
         ae_model.compile(optimizer=ae_optimizer, loss="binary_crossentropy", metrics=["MAE"])
-        ae_model.fit(x=ae_train_dataset, y=ae_train_dataset, validation_data=(ae_val_dataset, ae_val_dataset),
+        ae_model.fit(x=ae_train_dataset_noisy, y=ae_train_dataset,
+                     validation_data=(ae_val_dataset_noisy, ae_val_dataset),
                      batch_size=autoencoder_batch_size,
-                     epochs=autoencoder_epochs)
+                     epochs=autoencoder_epochs,
+                     callbacks=callbacks)
         ae_model.trainable = False
 
         # make alarm dataset from fully trained autoencoder activations
@@ -411,7 +437,8 @@ class ARGUELite:
         alarm_model.fit(x=alarm_train_dataset, y=alarm_train_labels,
                         validation_data=(alarm_val_dataset, alarm_val_labels),
                         batch_size=alarm_gating_batch_size,
-                        epochs=alarm_gating_epochs)
+                        epochs=alarm_gating_epochs,
+                        callbacks=callbacks)
 
         end = time.time()
         time_elapsed_string = make_time_elapsed_string(end - start, 180)

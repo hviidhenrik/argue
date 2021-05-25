@@ -39,7 +39,7 @@ if __name__ == "__main__":
     # plt.show()
 
     # scale the data and partition it into classes
-    scaler = MinMaxScaler().fit(df_train)
+    scaler = MinMaxScaler(feature_range=(-0, 1)).fit(df_train)
     df_train = pd.DataFrame(scaler.transform(df_train), columns=df_train.columns, index=df_train.index)
     df_test = pd.DataFrame(scaler.transform(df_test), columns=df_test.columns, index=df_test.index)
     df_train = partition_by_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 1])
@@ -78,26 +78,26 @@ if __name__ == "__main__":
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
-    plt.suptitle("Sanity check")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_sanitycheck_reconstructions.png")
-    # plt.show()
+    plt.suptitle("ARGUE LITE SIM Sanity check")
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_sanitycheck_reconstructions.png")
+    plt.show()
 
     model.predict_plot_reconstructions(df_test)
-    plt.suptitle("Test set")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_test_reconstructions.png")
-    # plt.show()
+    plt.suptitle("ARGUE LITE SIM Test set")
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_test_reconstructions.png")
+    plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
-    plt.suptitle("Sanity check")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_sanitycheck_preds.png")
-    # plt.show()
+    plt.suptitle("ARGUE LITE SIM Sanity check")
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_sanitycheck_preds.png")
+    plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
-    plt.suptitle("Test set")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_testset_preds.png")
-    # plt.show()
+    plt.suptitle("ARGUE LITE SIM Test set")
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELiteSim_pump30_testset_preds.png")
+    plt.show()
 
     y_pred = model.predict(df_test)
     print("Final predictions: \n", np.round(y_pred, 3))

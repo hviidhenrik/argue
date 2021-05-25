@@ -305,7 +305,12 @@ class ARGUELiteSim:
             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
             plot_training_history: bool = False,
-            plot_normal_vs_noise: bool = False):
+            plot_normal_vs_noise: bool = False,
+            stop_early: bool = False,
+            stop_early_patience: int = 15,
+            reduce_lr_on_plateau: bool = False,
+            reduce_lr_by_factor: float = 0.1,
+            reduce_lr_patience: int = 10):
 
         start = time.time()
         vprint(self.verbose, "Preparing data: slicing into partitions and batches...\n"
@@ -320,6 +325,16 @@ class ARGUELiteSim:
                                                  epochs, learning_rate, decay_rate,
                                                  optimizer, x_train)
 
+        callbacks = []
+        if stop_early:
+            callbacks.append(
+                tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=stop_early_patience,
+                                                 restore_best_weights=True, mode="min"))
+        if reduce_lr_on_plateau:
+            callbacks.append(tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=reduce_lr_by_factor,
+                                                                  patience=reduce_lr_patience, verbose=1,
+                                                                  mode="min"))
+
         vprint(self.verbose, "Fitting model...")
         self.full_model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["MAE"])
         self.full_model.fit(x=x_train.drop(columns=["partition"]),
@@ -328,7 +343,8 @@ class ARGUELiteSim:
                                 x_val.drop(columns=["partition"]),
                                 [x_val.drop(columns=["partition"]), alarm_val_labels]),
                             batch_size=batch_size,
-                            epochs=epochs)
+                            epochs=epochs,
+                            callbacks=callbacks)
         if plot_training_history:
             pd.DataFrame(self.full_model.history.history).plot(figsize=(8, 5))
             plt.show()
