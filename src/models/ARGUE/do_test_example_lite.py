@@ -36,11 +36,12 @@ if __name__ == "__main__":
                           use_decoder_outputs_in_decoder_activations=True,
                           encoder_dropout_frac=None,
                           decoders_dropout_frac=None,
-                          alarm_dropout_frac=None,
-                          make_model_visualiations=False
+                          alarm_dropout_frac=0.3,
+                          make_model_visualiations=False,
+                          autoencoder_l1=0, autoencoder_l2=0,
                           )
-        model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=20, alarm_gating_epochs=20,
+        model.fit(x_train.drop(columns=["partition"]),
+                  epochs=None, autoencoder_epochs=100, alarm_gating_epochs=100,
                   batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
                   optimizer="adam",
                   ae_learning_rate=0.0001,
@@ -61,5 +62,3 @@ if __name__ == "__main__":
     print(f"\nFinal anomaly probabilities:\n {final_preds}")
     model.predict_plot_anomalies(anomalies)
     plt.show()
-
-    # assert np.sum(final_preds - np.array([0.781, 0.9317, 0.9528, 0.9512, 0.9606, 0.9623, 0.9634, 0.9288])) == 0.0

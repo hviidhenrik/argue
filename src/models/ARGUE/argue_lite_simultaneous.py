@@ -185,7 +185,12 @@ class ARGUELiteSim:
                     encoder_dropout_frac: Optional[float] = None,
                     decoders_dropout_frac: Optional[float] = None,
                     alarm_dropout_frac: Optional[float] = None,
-                    make_model_visualiations: bool = False):
+                    make_model_visualiations: bool = False,
+                    autoencoder_l1: Optional[float] = None,
+                    autoencoder_l2: Optional[float] = None,
+                    alarm_l1: Optional[float] = None,
+                    alarm_l2: Optional[float] = None,
+                    ):
 
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
@@ -199,7 +204,9 @@ class ARGUELiteSim:
                                                            units_in_layers=encoder_hidden_layers,
                                                            activation=encoder_activation,
                                                            dropout_frac=encoder_dropout_frac,
-                                                           keep_output_layer_activations=use_latent_activations_in_encoder_activations)
+                                                           keep_output_layer_activations=use_latent_activations_in_encoder_activations,
+                                                           l1_weight_penalty=autoencoder_l1,
+                                                           l2_weight_penalty=autoencoder_l2)
 
         # set constants
         self.encoder_activation_dim = self.encoder.get_activation_dim()
@@ -215,7 +222,9 @@ class ARGUELiteSim:
                                                        output_layer=Dense(1, "sigmoid"),
                                                        units_in_layers=alarm_hidden_layers,
                                                        activation=alarm_activation,
-                                                       dropout_frac=alarm_dropout_frac)
+                                                       dropout_frac=alarm_dropout_frac,
+                                                       l1_weight_penalty=alarm_l1,
+                                                       l2_weight_penalty=alarm_l2)
 
         alarm_outputs = []
         decoder_outputs = []
@@ -226,7 +235,9 @@ class ARGUELiteSim:
                                                              units_in_layers=decoders_hidden_layers,
                                                              activation=decoders_activation,
                                                              dropout_frac=decoders_dropout_frac,
-                                                             keep_output_layer_activations=use_decoder_outputs_in_decoder_activations)
+                                                             keep_output_layer_activations=use_decoder_outputs_in_decoder_activations,
+                                                             l1_weight_penalty=autoencoder_l1,
+                                                             l2_weight_penalty=autoencoder_l2)
             self.decoder_dict[decoder_name] = decoder
             # connect common encoder with each decoder
             decoder_output_tensor = self._connect_autoencoder_pair(decoder).output
@@ -296,13 +307,14 @@ class ARGUELiteSim:
             plot_training_history: bool = False,
             plot_normal_vs_noise: bool = False):
 
+        start = time.time()
         vprint(self.verbose, "Preparing data: slicing into partitions and batches...\n"
                              f"Data dimensions: {x.shape}")
         # make datasets ready
         alarm_train_labels, alarm_val_labels, x_train, x_val = self._prepare_data(n_noise_samples, noise_stdev,
-                                                                                    noise_stdevs_away,
-                                                                                    plot_normal_vs_noise,
-                                                                                    validation_split, x)
+                                                                                  noise_stdevs_away,
+                                                                                  plot_normal_vs_noise,
+                                                                                  validation_split, x)
 
         optimizer = self._init_optimizer_wrapper(decay_after_epochs, batch_size,
                                                  epochs, learning_rate, decay_rate,
@@ -320,7 +332,10 @@ class ARGUELiteSim:
         if plot_training_history:
             pd.DataFrame(self.full_model.history.history).plot(figsize=(8, 5))
             plt.show()
-        vprint(self.verbose, "\n----------- Model fitted!\n\n")
+
+        end = time.time()
+        time_elapsed_string = make_time_elapsed_string(end - start, 180)
+        print(f"\n----------- Model fitted after:", time_elapsed_string, "\n\n")
 
     def predict(self, x: DataFrame):
         return self.input_to_alarm.predict(x)

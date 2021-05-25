@@ -63,7 +63,8 @@ if __name__ == "__main__":
                           use_decoder_outputs_in_decoder_activations=True,
                           encoder_dropout_frac=None,
                           decoders_dropout_frac=None,
-                          alarm_dropout_frac=None)
+                          alarm_dropout_frac=None,
+                          autoencoder_l1=0, autoencoder_l2=0)
         model.fit(df_train.drop(columns=["partition"]),
                   epochs=200,
                   batch_size=2048,

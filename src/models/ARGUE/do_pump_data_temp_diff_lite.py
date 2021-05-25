@@ -63,9 +63,10 @@ if __name__ == "__main__":
                           use_decoder_outputs_in_decoder_activations=True,
                           encoder_dropout_frac=None,
                           decoders_dropout_frac=None,
-                          alarm_dropout_frac=None)
-        model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=1, alarm_gating_epochs=1,
+                          alarm_dropout_frac=None,
+                          autoencoder_l1=0, autoencoder_l2=0)
+        model.fit(df_train.drop(columns=["partition"]),
+                  epochs=None, autoencoder_epochs=100, alarm_gating_epochs=100,
                   batch_size=None, autoencoder_batch_size=1024, alarm_gating_batch_size=2048,
                   optimizer="adam", ae_learning_rate=0.0001, alarm_gating_learning_rate=0.0001,
                   autoencoder_decay_after_epochs=100,
@@ -79,25 +80,25 @@ if __name__ == "__main__":
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle("Sanity check")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_sanitycheck_reconstructions.png")
-    # plt.show()
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_sanitycheck_reconstructions.png")
+    plt.show()
 
     model.predict_plot_reconstructions(df_test)
     plt.suptitle("Test set")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_test_reconstructions.png")
-    # plt.show()
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_test_reconstructions.png")
+    plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle("Sanity check")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_sanitycheck_preds.png")
-    # plt.show()
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_sanitycheck_preds.png")
+    plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.suptitle("Test set")
-    plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_testset_preds.png")
-    # plt.show()
+    # plt.savefig(get_ARGUE_path() / "plots" / "ARGUELite_pump30_testset_preds.png")
+    plt.show()
 
     y_pred = model.predict(df_test)
     print("Final predictions: \n", np.round(y_pred, 3))
