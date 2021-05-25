@@ -43,7 +43,7 @@ if __name__ == "__main__":
                           make_model_visualiations=False
                           )
         model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=1000, alarm_gating_epochs=1000,
+                  epochs=None, autoencoder_epochs=10, alarm_gating_epochs=10,
                   batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
                   optimizer="adam",
                   ae_learning_rate=0.0001,

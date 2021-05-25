@@ -24,13 +24,19 @@ from src.config.definitions import *
 plt.style.use('seaborn')
 
 
-class ARGUELite:
+class ARGUELiteSim:
     """
-    ARGUELite is a light-weight, standalone version of the more complicated ARGUE anomaly detector.
+    ARGUELiteSim is a light-weight, standalone version of the more complicated ARGUE anomaly detector.
+    Furthermore, it is an alternative version of the ARGUELite, which trains autoencoder and alarm network at the same
+    time. The networks are optimized jointly so that they may better adapt themselves to the other, e.g. the autoencoder
+    network will have weights that are optimized to make good reconstructions as well as make normale data points
+    more easily distinguishable from anomalous ones for the alarm network. The autoencoder therefore also gets to
+    see the generated counter examples from the noise generator.
+
     It features
     - a single autoencoder that reduces dimension and reconstructs data
     - an alarm network that analyses hidden activation patterns from the autoencoder and
-      computes anomaly probability based on these
+      computes anomaly probabilities based on these
     """
 
     def __init__(self,
@@ -285,102 +291,49 @@ class ARGUELite:
                              f"  > Number of decoders: {self.number_of_decoders}\n")
         return self
 
-    def fit2(self,
-             x: Union[DataFrame, np.ndarray],
-             partition_labels: Union[DataFrame, List[int]],
-             validation_split: float = 0.1,
-             batch_size: Optional[int] = 128,
-             autoencoder_batch_size: Optional[int] = None,
-             alarm_gating_batch_size: Optional[int] = None,
-             epochs: Optional[int] = 100,
-             autoencoder_epochs: Optional[int] = None,
-             alarm_gating_epochs: Optional[int] = None,
-             n_noise_samples: Optional[int] = None,
-             noise_stdevs_away: float = 3.0,
-             noise_stdev: float = 1.0,
-             ae_learning_rate: Union[float, List[float]] = 0.0001,
-             alarm_gating_learning_rate: float = 0.0001,
-             autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
-             alarm_decay_after_epochs: Optional[int] = None,
-             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
-             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
-             plot_normal_vs_noise: bool = False):
-
-        pass
-
     def fit(self,
             x: Union[DataFrame, np.ndarray],
-            partition_labels: Union[DataFrame, List[int]],
             validation_split: float = 0.1,
             batch_size: Optional[int] = 128,
-            autoencoder_batch_size: Optional[int] = None,
-            alarm_gating_batch_size: Optional[int] = None,
             epochs: Optional[int] = 100,
-            autoencoder_epochs: Optional[int] = None,
-            alarm_gating_epochs: Optional[int] = None,
             n_noise_samples: Optional[int] = None,
             noise_stdevs_away: float = 3.0,
             noise_stdev: float = 1.0,
-            ae_learning_rate: Union[float, List[float]] = 0.0001,
-            alarm_gating_learning_rate: float = 0.0001,
-            autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
-            alarm_decay_after_epochs: Optional[int] = None,
+            learning_rate: Union[float, List[float]] = 0.0001,
+            decay_after_epochs: Optional[Union[int, List[int]]] = None,
             decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
             optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
             plot_normal_vs_noise: bool = False):
 
-        autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
-        alarm_gating_epochs = epochs if alarm_gating_epochs is None else alarm_gating_epochs
-        autoencoder_batch_size = batch_size if autoencoder_batch_size is None else autoencoder_batch_size
-        alarm_gating_batch_size = batch_size if alarm_gating_batch_size is None else alarm_gating_batch_size
-
-        # form initial training data making sure labels and partitions are right
-        unique_partitions = np.unique(list(partition_labels))
         vprint(self.verbose, "Preparing data: slicing into partitions and batches...\n"
                              f"Data dimensions: {x.shape}")
-
         # make datasets ready
         gating_train_labels, gating_val_labels, x_train, x_val = self._prepare_data(n_noise_samples, noise_stdev,
-                                                                                    noise_stdevs_away, partition_labels,
+                                                                                    noise_stdevs_away,
                                                                                     plot_normal_vs_noise,
                                                                                     validation_split, x)
-        ae_train_dataset = x_train[x_train["partition"] == 1].drop(columns=["partition"])
-        ae_val_dataset = x_val[x_val["partition"] == 1].drop(columns=["partition"])
         alarm_train_labels = 1 - gating_train_labels[:, 1:]
         alarm_val_labels = 1 - gating_val_labels[:, 1:]
 
-        ae_optimizer = self._init_optimizer_wrapper(autoencoder_decay_after_epochs, autoencoder_batch_size,
-                                                    autoencoder_epochs, ae_learning_rate, decay_rate,
+        ae_optimizer = self._init_optimizer_wrapper(decay_after_epochs, batch_size,
+                                                    epochs, learning_rate, decay_rate,
                                                     optimizer, x_train)
-        alarm_optimizer = self._init_optimizer_wrapper(alarm_decay_after_epochs, alarm_gating_batch_size,
-                                                       alarm_gating_epochs, alarm_gating_learning_rate, decay_rate,
-                                                       optimizer, x_train)
+
         ae_model = self.input_to_decoders
-        alarm_model = self.alarm.keras_model
+        alarm_model = self.input_to_alarm
+        full_model = Model(inputs=ae_model.input, outputs=[ae_model.output, alarm_model.output])
+        full_model.trainable = True
+        full_model.output_names[0] = "AE"
+        full_model.compile(optimizer=ae_optimizer, loss="binary_crossentropy", metrics=["MAE"])
 
-        # train autoencoder
-        vprint(self.verbose, "\n\n=== Phase 1: training autoencoder ===")
-        ae_model.trainable = True
-        ae_model.compile(optimizer=ae_optimizer, loss="binary_crossentropy", metrics=["MAE"])
-        ae_model.fit(x=ae_train_dataset, y=ae_train_dataset, validation_data=(ae_val_dataset, ae_val_dataset),
-                     batch_size=autoencoder_batch_size,
-                     epochs=autoencoder_epochs)
-        ae_model.trainable = False
-
-        # make alarm dataset from fully trained autoencoder activations
-        alarm_train_dataset = self.input_to_activations.predict(x_train.drop(columns=["partition"]))
-        alarm_val_dataset = self.input_to_activations.predict(x_val.drop(columns=["partition"]))
-
-        # train alarm network
-        vprint(self.verbose, "\n\n=== Phase 2: training alarm network ===")
-        alarm_model.compile(optimizer=alarm_optimizer, loss="binary_crossentropy", metrics=["MAE"])
-        start = time.time()
-        alarm_model.fit(x=alarm_train_dataset, y=alarm_train_labels,
-                        validation_data=(alarm_val_dataset, alarm_val_labels),
-                        batch_size=alarm_gating_batch_size,
-                        epochs=alarm_gating_epochs)
-        end = time.time()
-        print(f"Alarm fit time elapsed: {end - start:.2f} seconds")
+        vprint(self.verbose, "Fitting model...")
+        full_model.fit(x=x_train.drop(columns=["partition"]),
+                       y=[x_train.drop(columns=["partition"]), alarm_train_labels],
+                       validation_data=(x_val.drop(columns=["partition"]), [x_val.drop(columns=["partition"]), alarm_val_labels]),
+                       batch_size=batch_size,
+                       epochs=epochs)
+        pd.DataFrame(full_model.history.history).plot(figsize=(8, 5))
+        plt.show()
         vprint(self.verbose, "\n----------- Model fitted!\n\n")
 
     def _init_optimizer_wrapper(self, decay_after_epochs, batch_size, epochs,
@@ -400,11 +353,12 @@ class ARGUELite:
         return optimizer
 
     @staticmethod
-    def _prepare_data(n_noise_samples, noise_stdev, noise_stdevs_away, partition_labels, plot_normal_vs_noise,
+    def _prepare_data(n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise,
                       validation_split, x):
         x_copy = x.copy()
-        x_copy = pd.concat([x_copy, partition_labels], axis=1)
-        x_copy = x_copy.rename(columns={x_copy.columns[-1]: "partition"})
+        x_copy["partition"] = 1
+        # x_copy = pd.concat([x_copy, partition_labels], axis=1)
+        # x_copy = x_copy.rename(columns={x_copy.columns[-1]: "partition"})
         # make gaussian noise samples so the optimization doesn't only see "healthy" data
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
         # TODO revise noise distribution or do it at runtime/training time instead (on the fly)
@@ -420,6 +374,7 @@ class ARGUELite:
             plt.suptitle("PCA of normal data vs generated noise")
             plt.legend()
             plt.show()
+
         x_noise["partition"] = -1
         x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)

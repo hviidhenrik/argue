@@ -6,7 +6,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages 
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import matplotlib.pyplot as plt
-from src.models.ARGUE.argue_lite import ARGUELite
+from src.models.ARGUE.argue_lite_simultaneous import ARGUELiteSim
 from src.models.ARGUE.data_generation import *
 from src.models.ARGUE.utils import *
 from src.data.data_utils import *
@@ -22,11 +22,11 @@ if __name__ == "__main__":
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
     if USE_SAVED_MODEL:
-        model = ARGUELite().load()
+        model = ARGUELiteSim().load()
     else:
         # call and fit model
-        model = ARGUELite(input_dim=2,
-                          latent_dim=1)
+        model = ARGUELiteSim(input_dim=2,
+                             latent_dim=1)
         model.build_model(encoder_hidden_layers=[6, 5, 4, 3, 2],
                           decoders_hidden_layers=[2, 3, 4, 5, 6],
                           alarm_hidden_layers=[15, 10, 5, 3, 2],
@@ -39,16 +39,14 @@ if __name__ == "__main__":
                           alarm_dropout_frac=None,
                           make_model_visualiations=False
                           )
-        model.fit(x_train.drop(columns=["partition"]), x_train["partition"],
-                  epochs=None, autoencoder_epochs=20, alarm_gating_epochs=20,
-                  batch_size=None, autoencoder_batch_size=1, alarm_gating_batch_size=1,
+        model.fit(x_train.drop(columns=["partition"]),
+                  epochs=20,
+                  batch_size=1,
                   optimizer="adam",
-                  ae_learning_rate=0.0001,
-                  alarm_gating_learning_rate=0.0001,
-                  autoencoder_decay_after_epochs=None,
-                  alarm_decay_after_epochs=None,
+                  learning_rate=0.0001,
+                  decay_after_epochs=None,
                   decay_rate=0.5,
-                  validation_split=1/5,
+                  validation_split=1 / 5,
                   n_noise_samples=None,
                   plot_normal_vs_noise=False)
         # model.save(model_path)
