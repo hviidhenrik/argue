@@ -29,18 +29,32 @@ class Network:
         self.keras_model = None
         self.activation_model = None
 
+    def _init_weight_regularizer(self, l1_weight_penalty, l2_weight_penalty):
+        regularizer_combination = (bool(l1_weight_penalty), bool(l2_weight_penalty))
+        regularizer_dict = {(False, False): None,
+                            (True, False): tf.keras.regularizers.l1(l1_weight_penalty),
+                            (False, True): tf.keras.regularizers.l2(l2_weight_penalty),
+                            (True, True): tf.keras.regularizers.l1_l2(l1_weight_penalty, l2_weight_penalty)}
+        return regularizer_dict[regularizer_combination]
+
     def build_model(self,
                     input_layer: tf.keras.layers.Layer,
                     output_layer: tf.keras.layers.Layer,
                     units_in_layers: List[int],
                     activation: str = "elu",
                     dropout_frac: Optional[float] = None,
-                    keep_output_layer_activations: bool = False):
+                    keep_output_layer_activations: bool = False,
+                    l1_weight_penalty: float = None,
+                    l2_weight_penalty: float = None):
 
         weight_initializer = "he_uniform" if activation == "relu" else "glorot_uniform"
+        weight_regularizer = self._init_weight_regularizer(l1_weight_penalty, l2_weight_penalty)
+
         x = input_layer
         for units in units_in_layers:
-            x = Dense(units, activation=activation, kernel_initializer=weight_initializer)(x)
+            x = Dense(units, activation=activation,
+                      kernel_initializer=weight_initializer,
+                      kernel_regularizer=weight_regularizer)(x)
             if dropout_frac is not None:
                 x = tf.keras.layers.Dropout(dropout_frac)(x)
         outputs = output_layer(x)
@@ -74,6 +88,7 @@ class Network:
         self.activation_model = tf.keras.models.load_model(path / "activation_model", compile=False)
         return self.keras_model, self.activation_model
 
+
 class L1CategoricalCrossentropy(tf.keras.losses.Loss):
 
     def __init__(self):
@@ -85,10 +100,10 @@ class L1CategoricalCrossentropy(tf.keras.losses.Loss):
         return self.catxe(y_true, y_pred) + self.l1_loss(y_true, y_pred)
 
 
-
 if __name__ == "__main__":
     import tensorflow as tf
-    FFN = Network(name="ffn").build_model(input_layer=tf.keras.layers.Input((3, )),
+
+    FFN = Network(name="ffn").build_model(input_layer=tf.keras.layers.Input((3,)),
                                           output_layer=tf.keras.layers.Dense(3, "sigmoid"),
                                           units_in_layers=[10, 8, 6],
                                           activation="tanh",

@@ -80,8 +80,8 @@ def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None
 
 # note: my modified noise generator
 def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = None,
-                           n_noise_samples: Optional[int] = None,
-                           stdev: float = 1, stdevs_away: float = 3):
+                            n_noise_samples: Optional[int] = None,
+                            stdev: float = 1, stdevs_away: float = 3):
     input_dim = pd.DataFrame(x).shape[1]
 
     # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
@@ -97,6 +97,7 @@ def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = Non
     return df_noise
 
 
+# note: another modified noise generator
 def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
                             **kwargs):
     input_dim = pd.DataFrame(x).shape[1]
@@ -110,8 +111,8 @@ def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
 
     df_noise1 = np.random.normal(size=(n_noise_samples, input_dim))
     df_noise2 = np.random.normal(size=(n_noise_samples, input_dim))
-    noise_below = MinMaxScaler(feature_range=(-6, normal_area[0]-1)).fit_transform(df_noise1)
-    noise_above = MinMaxScaler(feature_range=(normal_area[1]+1, 6)).fit_transform(df_noise2)
+    noise_below = MinMaxScaler(feature_range=(-6, normal_area[0] - 1)).fit_transform(df_noise1)
+    noise_above = MinMaxScaler(feature_range=(normal_area[1] + 1, 6)).fit_transform(df_noise2)
     df_noise = pd.DataFrame(np.vstack((noise_below, noise_above)), columns=x.columns)
     return df_noise
 
@@ -125,6 +126,7 @@ def plot_learning_schedule(total_steps: int = None,
     def decayed_learning_rate(step):
         exponent = (step // decay_steps) if staircase else (step / decay_steps)
         return np.power(initial_learning_rate * decay_rate, exponent)
+
     def get_lr(step):
         return decayed_learning_rate(step) if step > decay_steps else initial_learning_rate
 
@@ -141,3 +143,6 @@ def plot_learning_schedule(total_steps: int = None,
     plt.ylabel("Learning rate")
 
 
+def make_time_elapsed_string(elapsed_time, secs_to_min_threshold: int = 180):
+    return f"{elapsed_time:.2f} seconds!" if elapsed_time < secs_to_min_threshold else \
+        f"{elapsed_time / 60:.2f} minutes!"
