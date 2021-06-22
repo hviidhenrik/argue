@@ -366,7 +366,7 @@ class ARGUE:
         # make gaussian noise samples so the optimization doesn't only see "healthy" data
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
         # TODO revise noise distribution
-        x_noise = generate_noise_samples2(x_copy.drop(columns=["partition"]),
+        x_noise = generate_noise_samples(x_copy.drop(columns=["partition"]),
                                           quantiles=[0.005, 0.995], stdev=noise_stdev,
                                           stdevs_away=noise_stdevs_away, n_noise_samples=n_noise_samples)
 

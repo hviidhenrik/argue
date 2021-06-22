@@ -6,6 +6,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages 
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import matplotlib.pyplot as plt
+from sklearn.datasets import make_classification
 from src.models.ARGUE.argue_lite import ARGUELite
 from src.models.ARGUE.data_generation import *
 from src.models.ARGUE.utils import *
@@ -15,8 +16,19 @@ if __name__ == "__main__":
     tf.random.set_seed(1234)
     np.random.seed(1234)
     # make some data
-    x_train = pd.DataFrame({"x1": [0.983, 0.992, 0.9976, 0.978, 0.987, 0.01, 0.003, 0.06, 0.002, 0.05],
-                            "x2": [0.978, 0.988, 0.969, 0.986, 0.9975, 0.001, 0.04, 0.0031, 0.0721, 0.0034]})
+
+
+    # x_train = pd.DataFrame({"x1": [0.983, 0.992, 0.9976, 0.978, 0.987, 0.01, 0.003, 0.06, 0.002, 0.05],
+    #                         "x2": [0.978, 0.988, 0.969, 0.986, 0.9975, 0.001, 0.04, 0.0031, 0.0721, 0.0034]})
+    x_train, classes = make_classification(1000, n_features=2, n_informative=2, n_redundant=0, n_classes=4,
+                                           n_clusters_per_class=1, class_sep=2)
+    x_train = pd.DataFrame(x_train, columns=[f"x{i}" for i in range(1, x_train.shape[1]+1)])
+    plt.scatter(x_train["x1"], x_train["x2"], c=classes)
+    plt.show()
+    x_train["partition"] = classes - 1
+
+
+
     x_train = partition_by_quantiles(x_train, "x1", quantiles=[0, 1])
 
     # USE_SAVED_MODEL = True

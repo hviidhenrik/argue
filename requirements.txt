@@ -32,3 +32,6 @@ black # Auto formatter.
 # Documentation
 # ------------------------------------------------------------------------------
 
+
+timesynth
+setuptools

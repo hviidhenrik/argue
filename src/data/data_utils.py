@@ -1,5 +1,6 @@
 from typing import Union
 import pandas as pd
+import timesynth as ts
 from pandas import DataFrame
 from sklearn.model_selection import train_test_split
 from src.config.definitions import *
@@ -33,7 +34,7 @@ def save_local_data(df_to_save: DataFrame, filename: Union[str, WindowsPath] = N
 
 
 def make_and_save_debugging_dataset(
-    df_large, size: int = 800, filename: Union[str, WindowsPath] = None, index=None,
+        df_large, size: int = 800, filename: Union[str, WindowsPath] = None, index=None,
 ) -> None:
     """
     Takes a large dataset and automatically creates a smaller one, useful for testing and debugging.
@@ -59,6 +60,7 @@ def get_dataset_purpose_as_str(debugging: bool = None) -> str:
 def is_dataset_for_debugging(purpose: str = None) -> bool:
     return True if "debugging" in purpose else False
 
+
 def get_df_with_bad_data(df_cleaned: DataFrame, df_not_cleaned: DataFrame) -> DataFrame:
     """
     Gets the set difference between df_cleaned and df_not_cleaned, where df_not_cleaned is supposed to be
@@ -70,3 +72,13 @@ def get_df_with_bad_data(df_cleaned: DataFrame, df_not_cleaned: DataFrame) -> Da
     :return: dataframe of rows that were filtered out during data cleaning
     """
     return df_not_cleaned[~df_not_cleaned.index.isin(df_cleaned.index)]
+
+
+def make_univariate_timeseries(num_points: int = 100, noise_std: float = 1.0):
+    time_sampler = ts.TimeSampler(stop_time=20)
+    irregular_time_samples = time_sampler.sample_regular_time(num_points=num_points)
+    ar = ts.signals.CAR()
+    white_noise = ts.noise.GaussianNoise(std=noise_std)
+    timeseries = ts.TimeSeries(ar, noise_generator=white_noise)
+    samples, _, _ = timeseries.sample(irregular_time_samples)
+    return pd.DataFrame(samples, columns=["x1"])
