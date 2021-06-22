@@ -32,7 +32,7 @@ if __name__ == "__main__":
     df_train = pd.concat([df_raw.loc[:"2019-12-01 23:59:59"],
                           df_raw.loc["2020-02-30 23:59:59":
                                      "2020-09-14 23:59:59"]])
-    df_test = get_df_with_bad_data(df_train, df_raw)
+    # df_test = get_df_with_bad_data(df_train, df_raw)
     df_test = df_raw.loc["2020-09-15":]
     # df_test.plot(subplots=True, rot=5)
     # plt.suptitle("SSV Feedwater pump 30 temperature tags")
@@ -66,9 +66,9 @@ if __name__ == "__main__":
                           alarm_dropout_frac=None,
                           alarm_l1=0.0, alarm_l2=0.0)
         model.fit(df_train.drop(columns=["partition"]),
-                  epochs=None, autoencoder_epochs=400, alarm_gating_epochs=400,
-                  batch_size=None, autoencoder_batch_size=1024, alarm_gating_batch_size=2048,
-                  optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
+                  epochs=None, autoencoder_epochs=400, alarm_epochs=200,
+                  batch_size=None, autoencoder_batch_size=2048, alarm_batch_size=2048,
+                  optimizer="adam", autoencoder_learning_rate=0.001, alarm_learning_rate=0.001,
                   validation_split=0.1,
                   stop_early=True,
                   reduce_lr_on_plateau=True,

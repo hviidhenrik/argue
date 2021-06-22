@@ -8,6 +8,8 @@ from typing import List, Union, Optional
 import tensorflow as tf
 from tensorflow.keras.layers import Dense
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
 
@@ -55,8 +57,11 @@ def partition_by_quantiles(x, column: str, quantiles: List[float] = None):
     return x_out
 
 
-def partition_by_class():
-    pass
+def partition_by_pca_and_clustering(x, n_pca_components: int = 2, n_clusters: int = 2):
+    x_pca = PCA(n_pca_components).fit_transform(x)
+    clusters = KMeans(n_clusters=n_clusters, n_init=10).fit(x_pca)
+    x["partition"] = clusters.labels_ + 1
+    return x
 
 
 def check_alarm_sparsity(y_true, y_pred):
@@ -64,7 +69,7 @@ def check_alarm_sparsity(y_true, y_pred):
     return np.mean(absolute_error)
 
 
-# note authors' original noise generator
+# note: authors' original noise generator
 def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None,
                            n_noise_samples: Optional[int] = None,
                            stdev: float = 1, stdevs_away: float = 3):
