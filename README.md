@@ -1,7 +1,7 @@
 # SmartPlant Predictive Maintenance PhD repo
-This repository is the home of the industrial PhD project being carried out in the SmartPlant Predictive Maintenance (PdM) team. 
-The project aims to improve what we already do and find new and better ways of doing PdM together with the Technical University
-of Denmark (DTU) at the Depart of Applied Mathematics and Computer Science, also known as DTU Compute. 
+This repository is the home of the industrial PhD project being carried out in the SmartPlant Predictive Maintenance (PdM) team in Bioenergy. 
+The project aims to improve what we already do and find new and better ways of doing PdM together with the DTU Compute at the section for 
+statistics and data analysis.
 
 The repo houses several experimental projects with different purposes. Some of these are listed below. 
 
@@ -20,7 +20,6 @@ subtle anomalous patterns may well have been suppressed during the encoding and 
 
 
 ## AnoGen
-
 AnoGen is an experimental framework aiming to generate synthetic anomalies for 
 the purpose of evaluating the skill of anomaly detection algorithms if no real anomalous data exists.
 The framework requires only data representing a notion of a normal condition, 
