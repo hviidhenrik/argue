@@ -19,8 +19,8 @@ if __name__ == "__main__":
                             "x2": [0.978, 0.988, 0.969, 0.986, 0.9975, 0.001, 0.04, 0.0031, 0.0721, 0.0034]})
     x_train = partition_by_quantiles(x_train, "x1", quantiles=[0, 0.5, 1])
 
-    # USE_SAVED_MODEL = True
-    USE_SAVED_MODEL = False
+    USE_SAVED_MODEL = True
+    # USE_SAVED_MODEL = False
     if USE_SAVED_MODEL:
         model = ARGUE().load()
     else:
@@ -54,7 +54,7 @@ if __name__ == "__main__":
                   decay_rate=0.5, fp_penalty=0, fn_penalty=0,
                   validation_split=1/5,
                   n_noise_samples=None)
-        # model.save(model_path)
+        model.save()
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})

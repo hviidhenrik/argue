@@ -1,16 +1,19 @@
-# AnoGen stuff
-*.csv
-figures/
-*.pickle
-archive/models/
-
-# Byte-compiled / optimized / DLL files / other files
+# Data / plots / other files
 __pycache__/
+serialized_models/
+dist/
+logs/
 *.py[cod]
 *$py.class
 *.parquet
 # C extensions
 *.so
+*.png
+*.csv
+*.pickle
+*.zip
+archive/models/
+
 
 # Distribution / packaging
 .Python

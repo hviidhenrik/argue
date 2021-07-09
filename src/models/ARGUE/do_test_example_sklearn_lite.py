@@ -27,8 +27,6 @@ if __name__ == "__main__":
     plt.show()
     x_train["partition"] = classes - 1
 
-
-
     x_train = partition_by_quantiles(x_train, "x1", quantiles=[0, 1])
 
     # USE_SAVED_MODEL = True
