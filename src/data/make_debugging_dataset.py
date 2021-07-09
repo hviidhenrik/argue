@@ -2,8 +2,8 @@
 This script takes a large dataset and makes and saves a smaller one for faster testing and debugging.
 The subset selection is based on a random shuffling, so it should be representative of the full dataset.
 """
-from src.data.data_utils import *
 from src.config.definitions import *
+from src.data.utils import *
 
 if __name__ == "__main__":
     path = get_data_path() / "covtype"
