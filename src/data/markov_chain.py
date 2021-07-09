@@ -1,9 +1,7 @@
-import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-from src.data.data_utils import *
+import numpy as np
 
+from src.data.utils import *
 
 plt.style.use('seaborn')
 

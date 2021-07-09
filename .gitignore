@@ -12,7 +12,8 @@ logs/
 *.csv
 *.pickle
 *.zip
-archive/models/
+archive/
+deprecated/
 
 
 # Distribution / packaging
