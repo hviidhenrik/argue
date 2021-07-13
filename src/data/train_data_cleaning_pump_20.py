@@ -3,7 +3,7 @@ This script cleans the data from feedwater pump 20 at SSV
 """
 import logging
 import sys
-from src.data.ssv_feedwater_pump.ssv_fwp_data_utility_functions import *
+from src.data.ssv_fwp_data_utility_functions import *
 
 PUMP_NUMBER = "20"
 # SMALL_DATASET = True

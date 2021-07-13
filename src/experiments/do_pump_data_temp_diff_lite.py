@@ -8,7 +8,6 @@ from src.utils.model import *
 from src.data.utils import *
 
 # TODO Ideas for experiments
-#  - make the same models as I did for the feedwater pump model and compare performance with that using ARGUE
 #  - make one big model and see if ARGUE discovers the leak in Dec 2020
 #  - try different moving average windows and see if their crossings may indicate something like in finance
 #  - Ideas for data partitions:

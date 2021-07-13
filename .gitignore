@@ -12,6 +12,8 @@ logs/
 *.csv
 *.pickle
 *.zip
+*.Rhistory
+*.Rdata
 archive/
 deprecated/
 
