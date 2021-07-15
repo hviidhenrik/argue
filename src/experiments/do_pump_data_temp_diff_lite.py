@@ -21,7 +21,8 @@ if __name__ == "__main__":
     debugging = True
     # debugging = False
     size = get_dataset_purpose_as_str(debugging)
-    path = get_data_path() / "ssv_feedwater_pump" / f"data_pump_30_{size}_cleaned.csv"
+    # path = get_data_path() / "ssv_feedwater_pump" / f"data_pump_30_{size}_cleaned.csv"
+    path = get_data_path() / "ssv_feedwater_pump" / f"data_pump30_leak20_phase1.csv"
     df_raw = get_local_data(path)
     df_raw = df_raw[["effect_pump_30_MW", "flow_after_pump", "temp_after_pump", "temp_slipring_water_suction_side",
                      "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
@@ -30,7 +31,9 @@ if __name__ == "__main__":
                           df_raw.loc["2020-02-30 23:59:59":
                                      "2020-09-14 23:59:59"]])
     # df_test = get_df_with_bad_data(df_train, df_raw)
+    # df_test = df_raw.loc["2020-09-15":]
     df_test = df_raw.loc["2020-09-15":]
+
     # df_test.plot(subplots=True, rot=5)
     # plt.suptitle("SSV Feedwater pump 30 temperature tags")
     # plt.show()
