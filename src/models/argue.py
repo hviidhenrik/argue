@@ -586,8 +586,8 @@ class ARGUE:
                 plot_schedule=True,
             )
 
-        # TODO tf.function throws error when run in "do_pump_data_temp_diff.py", but not in the do_test_example.py
-        # @tf.function
+        # TODO tf.function throws error when run in "fwp30_argue.py", but not in the do_test_example.py
+        @tf.function
         def _ae_train_step(x_batch_train):
             with tf.GradientTape() as tape:
                 predictions = ae_model(x_batch_train, training=True)
