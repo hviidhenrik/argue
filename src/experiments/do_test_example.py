@@ -1,7 +1,9 @@
 import os
 
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
+from src.utils.experiment_logger import ExperimentLogger
 from src.models.argue import ARGUE
 from src.utils.misc import *
 from src.data.utils import *
@@ -52,6 +54,10 @@ if __name__ == "__main__":
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
+
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "test_example_argue")
 
     # predict the mixed data
     final_preds = np.round(model.predict(anomalies), 4)

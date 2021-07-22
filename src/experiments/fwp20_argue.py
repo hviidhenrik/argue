@@ -1,8 +1,10 @@
 import os
 
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
 from src.models.argue import ARGUE
+from src.utils.experiment_logger import ExperimentLogger
 from src.utils.misc import *
 from src.data.utils import *
 
@@ -66,26 +68,31 @@ if __name__ == "__main__":
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
         model.save(model_path)
 
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "fwp20_argue")
+    exp_id = logger.get_experiment_id()
+
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle("ARGUE Sanity check")
-    # plt.savefig(figure_path / f"ARGUE_pump20_sanitycheck_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUE_pump20_sanitycheck_reconstructions_ID{exp_id}.png")
     plt.show()
 
     model.predict_plot_reconstructions(df_test)
     plt.suptitle("ARGUE Test set")
-    # plt.savefig(figure_path / f"ARGUE_pump20_test_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUE_pump20_test_reconstructions_ID{exp_id}.png")
     plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle("ARGUE Sanity check")
-    # plt.savefig(figure_path / f"ARGUE_pump20_sanitycheck_preds.png")
+    # plt.savefig(figure_path / f"ARGUE_pump20_sanitycheck_preds_ID{exp_id}.png")
     plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.suptitle("ARGUE Test set")
-    plt.savefig(figure_path / f"ARGUE_pump20_testset_preds.png")
+    plt.savefig(figure_path / f"ARGUE_pump20_testset_preds_ID{exp_id}.png")
     # plt.show()

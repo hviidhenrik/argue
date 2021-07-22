@@ -8,7 +8,9 @@ _CWP_DATA_PATH = _DATA_PATH / "ssv_cooling_water_pump"
 _FWP_DATA_PATH = _DATA_PATH / "ssv_feedwater_pump"
 _SERIALIZED_MODELS_PATH = _ROOT_PATH / "serialized_models"
 _MODELS_PATH = _SRC_PATH / "models"
-_FIGURES_PATH = _ROOT_PATH / "reports" / "figures"
+_REPORTS_PATH = _ROOT_PATH / "reports"
+_EXPERIMENT_LOG_PATH = _REPORTS_PATH / "experiment_logs"
+_FIGURES_PATH = _REPORTS_PATH / "figures"
 _CLEANING_FIGURES_PATH = _FIGURES_PATH / "data_cleaning"
 
 
@@ -51,3 +53,11 @@ def get_figures_path() -> Path:
 # consider removing this
 def get_cleaning_figures_path() -> Path:
     return _CLEANING_FIGURES_PATH
+
+
+def get_reports_path() -> Path:
+    return _REPORTS_PATH
+
+
+def get_experiment_logs_path() -> Path:
+    return _EXPERIMENT_LOG_PATH

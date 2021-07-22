@@ -1,8 +1,10 @@
 import os
 
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
 from src.models.argue import ARGUE
+from src.utils.experiment_logger import ExperimentLogger
 from src.utils.misc import *
 from src.data.utils import *
 
@@ -34,8 +36,8 @@ if __name__ == "__main__":
     df_train["partition"] = partition_labels
 
     # Train ARGUE model
-    USE_SAVED_MODEL = True
-    # USE_SAVED_MODEL = False
+    # USE_SAVED_MODEL = True
+    USE_SAVED_MODEL = False
     model_path = get_serialized_models_path() / "ARGUE_SSV_FWP30"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
@@ -66,33 +68,38 @@ if __name__ == "__main__":
                   decay_rate=0.5,
                   validation_split=0.1,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
-        model.save(model_path)
+        # model.save(model_path)
+
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "fwp30_argue")
+    exp_id = logger.get_experiment_id()
 
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle("ARGUE Sanity check")
-    # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_reconstructions.png")
-    plt.show()
+    # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_reconstructions_ID{exp_id}.png")
+    # plt.show()
 
     # get the exact time where the fault starts
     idx_fault_start = df_test_meta.index[np.where(df_test_meta["faulty"] == 1)[0][0]]
 
     model.predict_plot_reconstructions(df_test)
     plt.suptitle("ARGUE Test set")
-    # plt.savefig(figure_path / f"ARGUE_pump30_test_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUE_pump30_test_reconstructions_ID{exp_id}.png")
     plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle("ARGUE Sanity check")
-    # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_preds.png")
+    # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_preds_ID{exp_id}.png")
     plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
     plt.suptitle("ARGUE Test set")
-    plt.savefig(figure_path / f"ARGUE_pump30_testset_preds.png")
+    plt.savefig(figure_path / f"ARGUE_pump30_testset_preds_ID{exp_id}.png")
     # plt.show()
 

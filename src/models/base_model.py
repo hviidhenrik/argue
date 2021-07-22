@@ -16,9 +16,9 @@ from src.data.utils import *
 
 
 class BaseModel:
-
-    def __init__(self):
-        pass
+    def __init__(self, model_name: str = None):
+        self.model_name: Optional[str] = model_name
+        self.hyperparameters: Optional[Dict] = None
 
     def save(self, path: Union[Path, str] = None, model_name: str = None):
         def _save_models_in_dict(model_dict: Dict):
@@ -85,6 +85,3 @@ class BaseModel:
         print("... Model loaded and ready!")
 
         return self
-
-    def hyperparams_to_file(self):
-        pass

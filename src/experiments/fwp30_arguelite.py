@@ -1,8 +1,10 @@
 import os
 
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
 from src.models.argue_lite import ARGUELite
+from src.utils.experiment_logger import ExperimentLogger
 from src.utils.misc import *
 from src.data.utils import *
 
@@ -34,8 +36,8 @@ if __name__ == "__main__":
     df_train["partition"] = partition_labels
 
     # Train ARGUE
-    # USE_SAVED_MODEL = True
-    USE_SAVED_MODEL = False
+    USE_SAVED_MODEL = True
+    # USE_SAVED_MODEL = False
     model_path = get_serialized_models_path() / "ARGUELite_SSV_FWP30"
     if USE_SAVED_MODEL:
         model = ARGUELite().load(model_path)
@@ -55,7 +57,9 @@ if __name__ == "__main__":
                           alarm_dropout_frac=0.1,
                           alarm_l1=0.0, alarm_l2=0.0)
         model.fit(df_train.drop(columns=["partition"]),
-                  epochs=None, autoencoder_epochs=200, alarm_epochs=60,
+                  epochs=None,
+                  autoencoder_epochs=0, # 200,
+                  alarm_epochs=0, # 60,
                   batch_size=None, autoencoder_batch_size=2048, alarm_batch_size=2048,
                   optimizer="adam", autoencoder_learning_rate=0.001, alarm_learning_rate=0.001,
                   validation_split=0.1,
@@ -63,13 +67,18 @@ if __name__ == "__main__":
                   reduce_lr_on_plateau=True,
                   reduce_lr_by_factor=0.8,
                   noise_factor=0.0)
-        # model.save(model_path)
+        model.save(model_path)
+
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "fwp30_arguelite")
+    exp_id = logger.get_experiment_id()
 
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle(f"ARGUE LITE Sanity check")
-    # plt.savefig(figure_path / f"ARGUELite_pump30_sanitycheck_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUELite_pump30_sanitycheck_reconstructions_ID{exp_id}.png")
     plt.show()
 
     # get the exact time where the fault starts
@@ -77,18 +86,18 @@ if __name__ == "__main__":
 
     model.predict_plot_reconstructions(df_test, anomaly_start_indicator=idx_fault_start)
     plt.suptitle(f"ARGUE LITE Test set")
-    # plt.savefig(figure_path / f"ARGUELite_pump30_test_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUELite_pump30_test_reconstructions_ID{exp_id}.png")
     plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle(f"ARGUE LITE Sanity check")
-    # plt.savefig(figure_path / f"ARGUELite_pump30_sanitycheck_preds.png")
+    # plt.savefig(figure_path / f"ARGUELite_pump30_sanitycheck_preds_ID{exp_id}.png")
     plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
     plt.suptitle(f"ARGUE LITE Test set")
-    plt.savefig(figure_path / f"ARGUELite_pump30_testset_preds.png")
+    plt.savefig(figure_path / f"ARGUELite_pump30_testset_preds_ID{exp_id}.png")
     # plt.show()
