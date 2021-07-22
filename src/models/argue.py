@@ -12,6 +12,7 @@ from tqdm import tqdm
 from src.config.definitions import *
 from src.utils.misc import *
 from src.utils.model import *
+from src.models.base_model import BaseModel
 
 plt.style.use("seaborn")
 
@@ -41,7 +42,7 @@ plt.style.use("seaborn")
 #
 
 
-class ARGUE:
+class ARGUE(BaseModel):
     def __init__(
         self,
         input_dim: int = 3,

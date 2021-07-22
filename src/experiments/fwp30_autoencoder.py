@@ -10,6 +10,7 @@ if __name__ == "__main__":
     set_seed(1234)
 
     path = get_data_path() / "ssv_feedwater_pump"
+    figure_path = get_figures_path() / "ssv_feedwater_pump" / "pump_30"
 
     # get phase 1 and 2 data
     df_train = get_local_data(path / f"data_pump30_phase1.csv")
@@ -33,6 +34,7 @@ if __name__ == "__main__":
     df_train["partition"] = partition_labels
 
     quantiles = [0.8, 0.85, 0.9, 0.95, 0.96, 0.97, 0.98, 0.99, 0.995, 1.0]
+    quantiles = [0.995]
     for q in quantiles:
         set_seed(1234)
         # Train ARGUE
@@ -44,7 +46,7 @@ if __name__ == "__main__":
         else:
             # call and fit model
             model = BaselineAutoencoder(input_dim=len(df_train.columns[:-1]),
-                                        latent_dim=2,
+                                        latent_dim=5,
                                         test_set_quantile_for_threshold=q,
                                         verbose=1)
             model.build_model(encoder_hidden_layers=[40, 35, 30, 25, 20, 15, 10, 5],
@@ -67,7 +69,7 @@ if __name__ == "__main__":
         df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
         model.predict_plot_reconstructions(df_train_sanity_check)
         plt.suptitle(f"Baseline Autoencoder Sanity check, test quantile = {q}")
-        # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"Baseline_pump30_sanitycheck_reconstructions_q-{q}.png")
+        # plt.savefig(figure_path / f"Baseline_pump30_sanitycheck_reconstructions_q-{q}.png")
         plt.show()
 
         # get the exact time where the fault starts
@@ -75,18 +77,18 @@ if __name__ == "__main__":
 
         model.predict_plot_reconstructions(df_test)
         plt.suptitle(f"Baseline Autoencoder Test set, test quantile = {q}")
-        # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"Baseline_pump30_test_reconstructions_q-{q}.png")
+        # plt.savefig(figure_path / f"Baseline_pump30_test_reconstructions_q-{q}.png")
         plt.show()
 
         windows_hours = list(np.multiply([8, 24], 40))
         model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
         plt.suptitle(f"Baseline Autoencoder Sanity check, test quantile = {q}")
-        # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"Baseline_pump30_sanitycheck_preds_q-{q}.png")
+        # plt.savefig(figure_path / f"Baseline_pump30_sanitycheck_preds_q-{q}.png")
         plt.show()
 
         # predict the test set
         model.predict_plot_anomalies(df_test, window_length=windows_hours)
         plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
         plt.suptitle(f"Baseline Autoencoder Test set, test quantile = {q}")
-        plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"Baseline_pump30_testset_preds_q-{q}.png")
+        plt.savefig(figure_path / f"Baseline_pump30_testset_preds_q-{q}.png")
         # plt.show()

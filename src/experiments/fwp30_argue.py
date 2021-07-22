@@ -10,6 +10,7 @@ if __name__ == "__main__":
     set_seed(1234)
 
     path = get_data_path() / "ssv_feedwater_pump"
+    figure_path = get_figures_path() / "ssv_feedwater_pump" / "pump_30"
 
     # get phase 1 and 2 data
     df_train = get_local_data(path / f"data_pump30_phase1.csv")
@@ -33,8 +34,8 @@ if __name__ == "__main__":
     df_train["partition"] = partition_labels
 
     # Train ARGUE model
-    # USE_SAVED_MODEL = True
-    USE_SAVED_MODEL = False
+    USE_SAVED_MODEL = True
+    # USE_SAVED_MODEL = False
     model_path = get_serialized_models_path() / "ARGUE_SSV_FWP30"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
@@ -54,7 +55,9 @@ if __name__ == "__main__":
                           alarm_dropout_frac=0.1,
                           gating_dropout_frac=None)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=160, alarm_gating_epochs=30,
+                  epochs=None,
+                  autoencoder_epochs=0, #160,
+                  alarm_gating_epochs=0, # 30,
                   batch_size=None, autoencoder_batch_size=2048, alarm_gating_batch_size=2048,
                   optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
                   autoencoder_decay_after_epochs=80,
@@ -63,13 +66,13 @@ if __name__ == "__main__":
                   decay_rate=0.5,
                   validation_split=0.1,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
-        # model.save(model_path)
+        model.save(model_path)
 
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle("ARGUE Sanity check")
-    # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUE_pump30_sanitycheck_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_reconstructions.png")
     plt.show()
 
     # get the exact time where the fault starts
@@ -77,19 +80,19 @@ if __name__ == "__main__":
 
     model.predict_plot_reconstructions(df_test)
     plt.suptitle("ARGUE Test set")
-    # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUE_pump30_test_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUE_pump30_test_reconstructions.png")
     plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle("ARGUE Sanity check")
-    # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUE_pump30_sanitycheck_preds.png")
+    # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_preds.png")
     plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
     plt.suptitle("ARGUE Test set")
-    plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUE_pump30_testset_preds.png")
+    plt.savefig(figure_path / f"ARGUE_pump30_testset_preds.png")
     # plt.show()
 

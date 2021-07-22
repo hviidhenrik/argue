@@ -10,6 +10,7 @@ if __name__ == "__main__":
     set_seed(1234)
 
     path = get_data_path() / "ssv_feedwater_pump"
+    figure_path = get_figures_path() / "ssv_feedwater_pump" / "pump_30"
 
     # get phase 1 and 2 data
     df_train = get_local_data(path / f"data_pump30_phase1.csv")
@@ -54,7 +55,7 @@ if __name__ == "__main__":
                           alarm_dropout_frac=0.1,
                           alarm_l1=0.0, alarm_l2=0.0)
         model.fit(df_train.drop(columns=["partition"]),
-                  epochs=None, autoencoder_epochs=200, alarm_epochs=30,
+                  epochs=None, autoencoder_epochs=200, alarm_epochs=60,
                   batch_size=None, autoencoder_batch_size=2048, alarm_batch_size=2048,
                   optimizer="adam", autoencoder_learning_rate=0.001, alarm_learning_rate=0.001,
                   validation_split=0.1,
@@ -68,7 +69,7 @@ if __name__ == "__main__":
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle(f"ARGUE LITE Sanity check")
-    # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUELite_pump30_sanitycheck_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUELite_pump30_sanitycheck_reconstructions.png")
     plt.show()
 
     # get the exact time where the fault starts
@@ -76,18 +77,18 @@ if __name__ == "__main__":
 
     model.predict_plot_reconstructions(df_test, anomaly_start_indicator=idx_fault_start)
     plt.suptitle(f"ARGUE LITE Test set")
-    # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUELite_pump30_test_reconstructions.png")
+    # plt.savefig(figure_path / f"ARGUELite_pump30_test_reconstructions.png")
     plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle(f"ARGUE LITE Sanity check")
-    # plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUELite_pump30_sanitycheck_preds.png")
+    # plt.savefig(figure_path / f"ARGUELite_pump30_sanitycheck_preds.png")
     plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
     plt.suptitle(f"ARGUE LITE Test set")
-    plt.savefig(get_figures_path() / "ssv_feedwater_pump" / "pump_30" / f"ARGUELite_pump30_testset_preds.png")
+    plt.savefig(figure_path / f"ARGUELite_pump30_testset_preds.png")
     # plt.show()
