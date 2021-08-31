@@ -39,6 +39,7 @@ class BaselineAutoencoder(BaseModel):
         self.residual_function = residual_function(
             reduction=tf.keras.losses.Reduction.NONE
         )
+        self.residuals = None
         self.anomaly_threshold = None
         self.test_set_quantile_for_threshold = test_set_quantile_for_threshold
         self.verbose = verbose
@@ -58,8 +59,8 @@ class BaselineAutoencoder(BaseModel):
 
     def _compute_anomaly_threshold(self, x_val):
         predictions = self.input_to_decoders.predict(x_val)
-        residual = self.residual_function(x_val, predictions).numpy()
-        return np.quantile(residual, self.test_set_quantile_for_threshold)
+        self.residuals = self.residual_function(x_val, predictions).numpy()
+        return np.quantile(self.residuals, self.test_set_quantile_for_threshold)
 
     def build_model(
         self,
@@ -259,6 +260,11 @@ class BaselineAutoencoder(BaseModel):
             df_residuals["residual"] >= self.anomaly_threshold
         )
         return df_residuals["anomaly"]
+
+    def predict_residuals(self, x):
+        predictions = self.input_to_decoders.predict(x)
+        residuals = self.residual_function(x, predictions).numpy()
+        return pd.DataFrame({"residual": residuals}, index=x.index)
 
     def predict_plot_anomalies(
         self,

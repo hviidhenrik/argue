@@ -44,7 +44,7 @@ if __name__ == "__main__":
     else:
         model = ARGUE(input_dim=len(df_train.columns[:-1]),
                       number_of_decoders=len(df_train["partition"].unique()),
-                      latent_dim=2, verbose=1)
+                      latent_dim=5, verbose=1)
         model.build_model(encoder_hidden_layers=[40, 35, 30, 25, 20, 15, 10, 5],
                           decoders_hidden_layers=[5, 10, 15, 20, 25, 30, 35, 40],
                           alarm_hidden_layers=[320, 160, 80, 40, 20, 10],
@@ -58,8 +58,8 @@ if __name__ == "__main__":
                           gating_dropout_frac=None)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
                   epochs=None,
-                  autoencoder_epochs=0, #160,
-                  alarm_gating_epochs=0, # 30,
+                  autoencoder_epochs=200, #160,
+                  alarm_gating_epochs=200, # 30,
                   batch_size=None, autoencoder_batch_size=2048, alarm_gating_batch_size=2048,
                   optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
                   autoencoder_decay_after_epochs=80,
@@ -88,18 +88,18 @@ if __name__ == "__main__":
     model.predict_plot_reconstructions(df_test)
     plt.suptitle("ARGUE Test set")
     # plt.savefig(figure_path / f"ARGUE_pump30_test_reconstructions_ID{exp_id}.png")
-    plt.show()
+    # plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle("ARGUE Sanity check")
     # plt.savefig(figure_path / f"ARGUE_pump30_sanitycheck_preds_ID{exp_id}.png")
-    plt.show()
+    # plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
     plt.suptitle("ARGUE Test set")
-    plt.savefig(figure_path / f"ARGUE_pump30_testset_preds_ID{exp_id}.png")
-    # plt.show()
+    # plt.savefig(figure_path / f"ARGUE_pump30_testset_preds_ID{exp_id}.png")
+    plt.show()
 

@@ -54,10 +54,10 @@ if __name__ == "__main__":
             model.build_model(encoder_hidden_layers=[40, 35, 30, 25, 20, 15, 10, 5],
                               decoders_hidden_layers=[5, 10, 15, 20, 25, 30, 35, 40],
                               all_activations="tanh",
-                              encoder_dropout_frac=None,
-                              decoders_dropout_frac=None)
+                              encoder_dropout_frac=0.1,
+                              decoders_dropout_frac=0.1)
             model.fit(df_train.drop(columns=["partition"]),
-                      epochs=200,
+                      epochs=2,
                       batch_size=2048,
                       optimizer="adam", learning_rate=0.001,
                       validation_split=0.1,
@@ -66,6 +66,14 @@ if __name__ == "__main__":
                       reduce_lr_by_factor=0.8,
                       noise_factor=0.0)
             # model.save(model_path)
+
+        plt.hist(np.log(model.residuals), density=True, bins=60)
+        plt.show()
+
+        foo = model.predict_residuals(df_test)
+
+        plt.hist(np.log(foo), bins=60)
+        plt.show()
 
         # save hyperparameters and other model info to csv
         logger = ExperimentLogger()
@@ -97,5 +105,5 @@ if __name__ == "__main__":
         model.predict_plot_anomalies(df_test, window_length=windows_hours)
         plt.vlines(x=idx_fault_start, ymin=0, ymax=1, color="red")
         plt.suptitle(f"Baseline Autoencoder Test set, test quantile = {q}")
-        plt.savefig(figure_path / f"Baseline_pump30_testset_preds_q-{q}_ID{exp_id}.png")
-        # plt.show()
+        # plt.savefig(figure_path / f"Baseline_pump30_testset_preds_q-{q}_ID{exp_id}.png")
+        plt.show()
