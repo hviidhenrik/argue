@@ -5,6 +5,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages 
 from src.models.argue_lite import ARGUELite
 from src.utils.misc import *
 from src.data.utils import *
+from src.utils.experiment_logger import ExperimentLogger
 
 if __name__ == "__main__":
     set_seed(1234)
@@ -35,7 +36,7 @@ if __name__ == "__main__":
                           autoencoder_l1=0, autoencoder_l2=0,
                           )
         model.fit(x_train.drop(columns=["partition"]),
-                  epochs=None, autoencoder_epochs=10, alarm_epochs=1,
+                  epochs=None, autoencoder_epochs=0, alarm_epochs=0,
                   batch_size=None, autoencoder_batch_size=1, alarm_batch_size=1,
                   optimizer="adam",
                   autoencoder_learning_rate=0.0001,
@@ -47,6 +48,10 @@ if __name__ == "__main__":
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
+
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "test_example_argue_lite")
 
     # predict the mixed data
     final_preds = np.round(model.predict(anomalies), 4)

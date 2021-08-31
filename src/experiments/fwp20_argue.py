@@ -1,56 +1,48 @@
 import os
+
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
 from src.models.argue import ARGUE
+from src.utils.experiment_logger import ExperimentLogger
 from src.utils.misc import *
 from src.data.utils import *
 
-# TODO Ideas for experiments
-#  - make the same models as I did for the feedwater pump model and compare performance with that using ARGUE
-#  - make one big model and see if ARGUE discovers the leak in Dec 2020
-#  - try different moving average windows and see if their crossings may indicate something like in finance
-#  - Ideas for data partitions:
-#    - cut off on mega watts, e.g. low, medium, high load
-#    - do clustering using Kmeans or DBSCAN
-
 if __name__ == "__main__":
     set_seed(1234)
-    # load dataset
-    debugging = True
-    # debugging = False
-    size = get_dataset_purpose_as_str(debugging)
-    path = get_data_path() / "ssv_feedwater_pump" / f"data_pump_30_{size}_cleaned.csv"
-    df_raw = get_local_data(path)
-    df_raw = df_raw[["effect_pump_30_MW", "flow_after_pump", "temp_after_pump", "temp_slipring_water_suction_side",
-                     "temp_slipring_water_pressure_side", "temp_slipring_diff"]]
-    # form train and test sets
-    df_train = pd.concat([df_raw.loc[:"2019-12-01 23:59:59"],
-                          df_raw.loc["2020-02-30 23:59:59":
-                                     "2020-09-14 23:59:59"]])
-    # df_test = get_df_with_bad_data(df_train, df_raw)
-    df_test = df_raw.loc["2020-09-15":]
-    # df_test.plot(subplots=True, rot=5)
-    # plt.suptitle("SSV Feedwater pump 30 temperature tags")
-    # plt.show()
 
-    # scale the data and partition it into classes
+    path = get_data_path() / "ssv_feedwater_pump"
+    figure_path = get_figures_path() / "ssv_feedwater_pump" / "pump_20"
+
+    # get phase 1 and 2 data
+    df_train = get_local_data(path / f"data_pump20_phase1.csv")
+    df_train_meta = df_train[["sample", "faulty"]]
+    df_train = df_train.drop(columns=["sample", "faulty"])
+
+    df_test = get_local_data(path / f"data_pump20_phase2.csv")
+    df_test_meta = df_test[["sample", "faulty"]]
+    df_test = df_test.drop(columns=["sample", "faulty"])
+
+    # scale the data
     scaler = MinMaxScaler().fit(df_train)
     df_train = pd.DataFrame(scaler.transform(df_train), columns=df_train.columns, index=df_train.index)
     df_test = pd.DataFrame(scaler.transform(df_test), columns=df_test.columns, index=df_test.index)
-    # TODO try standard ARGUE with a clustering model on the data instead of quantile partitions
-    # df_train = partition_by_quantiles(df_train, "effect_pump_30_MW", quantiles=[0, 0.5, 1])
-    df_train = partition_by_pca_and_clustering(df_train, 2, 2)
 
+    # visualize principal components to discover natural clusters in the data and use those for partitioning
+    df_pca_data, pca_object = reduce_dimension_by_pca(df_train)
+    # plot_candidate_partitions_by_pca(df_pca_data, pca_object)
+    partition_labels = select_pcs_and_partition_data(df_pca_data, pcs_to_cluster_on=[2, 3], n_clusters=2,
+                                                     plot_pca_clustering=False)
+    df_train["partition"] = partition_labels
 
-    # Train ARGUE
+    # Train ARGUE model
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
-    model_path = get_serialized_models_path() / "ARGUE_SSV_FWP30"
+    model_path = get_serialized_models_path() / "ARGUE_SSV_FWP20"
     if USE_SAVED_MODEL:
         model = ARGUE().load(model_path)
     else:
-        # call and fit model
-        model = ARGUE(input_dim=len(df_train.columns[:-1]),  # TODO revise input dims with partition etc to be easier
+        model = ARGUE(input_dim=len(df_train.columns[:-1]),
                       number_of_decoders=len(df_train["partition"].unique()),
                       latent_dim=2, verbose=1)
         model.build_model(encoder_hidden_layers=[40, 35, 30, 25, 20, 15, 10, 5],
@@ -65,7 +57,7 @@ if __name__ == "__main__":
                           alarm_dropout_frac=None,
                           gating_dropout_frac=None)
         model.fit(df_train.drop(columns=["partition"]), df_train["partition"],
-                  epochs=None, autoencoder_epochs=2, alarm_gating_epochs=2,
+                  epochs=None, autoencoder_epochs=20, alarm_gating_epochs=10,
                   batch_size=None, autoencoder_batch_size=2048, alarm_gating_batch_size=2048,
                   optimizer="adam", ae_learning_rate=0.001, alarm_gating_learning_rate=0.001,
                   autoencoder_decay_after_epochs=80,
@@ -74,36 +66,33 @@ if __name__ == "__main__":
                   decay_rate=0.5,
                   validation_split=0.1,
                   n_noise_samples=None, noise_stdev=1, noise_stdevs_away=4)
-        # model.save(model_path)
+        model.save(model_path)
+
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "fwp20_argue")
+    exp_id = logger.get_experiment_id()
 
     # predict some of the training set to ensure the models are behaving correctly on this
     df_train_sanity_check = df_train.drop(columns=["partition"]).sample(300).sort_index()
     model.predict_plot_reconstructions(df_train_sanity_check)
     plt.suptitle("ARGUE Sanity check")
-    plt.savefig(get_figures_path() / f"ARGUE_pump30_sanitycheck_reconstructions.png")
-    # plt.show()
+    # plt.savefig(figure_path / f"ARGUE_pump20_sanitycheck_reconstructions_ID{exp_id}.png")
+    plt.show()
 
     model.predict_plot_reconstructions(df_test)
     plt.suptitle("ARGUE Test set")
-    plt.savefig(get_figures_path() / f"ARGUE_pump30_test_reconstructions.png")
-    # plt.show()
+    # plt.savefig(figure_path / f"ARGUE_pump20_test_reconstructions_ID{exp_id}.png")
+    plt.show()
 
     windows_hours = list(np.multiply([8, 24], 40))
     model.predict_plot_anomalies(df_train_sanity_check, window_length=windows_hours)
     plt.suptitle("ARGUE Sanity check")
-    plt.savefig(get_figures_path() / f"ARGUE_pump30_sanitycheck_preds.png")
-    # plt.show()
+    # plt.savefig(figure_path / f"ARGUE_pump20_sanitycheck_preds_ID{exp_id}.png")
+    plt.show()
 
     # predict the test set
     model.predict_plot_anomalies(df_test, window_length=windows_hours)
     plt.suptitle("ARGUE Test set")
-    plt.savefig(get_figures_path() / f"ARGUE_pump30_testset_preds.png")
+    plt.savefig(figure_path / f"ARGUE_pump20_testset_preds_ID{exp_id}.png")
     # plt.show()
-
-    # y_pred = model.predict(df_test)
-    # alarm = model.predict_alarm_probabilities(df_test)
-    #
-    # gating = model.predict_gating_weights(df_test)
-    # print("Alarm probs: \n", np.round(alarm, 3))
-    # print("Gating weights: \n", np.round(gating, 3))
-    # print("Final predictions: \n", np.round(y_pred, 3))

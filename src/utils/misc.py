@@ -5,6 +5,7 @@ Misc utilities, helper functions etc
 from typing import List, Union, Optional
 
 import matplotlib.pyplot as plt
+import plotly.express as px
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -33,11 +34,94 @@ def partition_by_quantiles(x, column: str, quantiles: List[float] = None):
     return x_out
 
 
-def partition_by_pca_and_clustering(x, n_pca_components: int = 2, n_clusters: int = 2):
-    x_pca = PCA(n_pca_components).fit_transform(x)
-    clusters = KMeans(n_clusters=n_clusters, n_init=10).fit(x_pca)
-    x["partition"] = clusters.labels_ + 1
-    return x
+def reduce_dimension_by_pca(x):
+    """
+    This is a helper function that simply does a PCA and returns the pca object and transformed data. Use before
+    plot_candidate_partitions_by_pca or select_pcs_and_partition_data
+    """
+    pca = PCA().fit(x)
+    x_transformed = pca.transform(x)
+    return x_transformed, pca
+
+
+def plot_candidate_partitions_by_pca(x_transformed, pca):
+    """
+    This function is a visual aid to guide the number of partitions and which principal components to
+    use for clustering. Should be followed by select_pcs_and_partition_data called on the output from this
+    using the visual conclusions obtained from this one. Plots adapted from:
+    https://plotly.com/python/pca-visualization/
+    """
+
+    # pca = PCA().fit(x)
+    # x_transformed = pca.transform(x)
+    components = x_transformed
+    labels = {str(i): f"PC {i + 1} ({var:.1f}%)" for i, var in enumerate(pca.explained_variance_ratio_ * 100)}
+    dimensions = range(np.min([5, x_transformed.shape[1]])) # get available PC's up to a max of 5
+
+    fig = px.scatter_matrix(
+        components,
+        labels=labels,
+        dimensions=dimensions,
+    )
+    fig.update_traces(diagonal_visible=False)
+    fig.show()
+    return x_transformed
+
+
+def select_pcs_and_partition_data(x_transformed, pcs_to_cluster_on: List[int], n_clusters: int,
+                                  plot_pca_clustering: bool = True):
+    """
+    This function relies on the visual conclusions from plot_candidate_partitions_by_pca.
+    The particular PC's to cluster on can be selected as well as the desired number of clusters/partitions to obtain
+    """
+
+    assert 0 not in pcs_to_cluster_on, "PC's must be given by indices starting from 1"
+    pcs_to_cluster_on = [i-1 for i in pcs_to_cluster_on]  # convert to actual array indices
+    clusters = KMeans(n_clusters=n_clusters, n_init=50).fit(x_transformed[:, pcs_to_cluster_on])
+    partition_labels = clusters.labels_ + 1
+    if plot_pca_clustering:
+        components = x_transformed
+        dimensions = range(np.min([5, x_transformed.shape[1]])) # get available PC's up to a max of 5
+        labels = {str(i): f"PC {i+1}" for i in dimensions}
+
+        fig = px.scatter_matrix(
+            components,
+            labels=labels,
+            dimensions=dimensions,
+            color=partition_labels
+        )
+        fig.update_traces(diagonal_visible=False)
+        fig.show()
+    return partition_labels
+
+
+# def partition_by_pca_and_clustering(x, n_pca_components: int = 2, n_clusters: int = 2, plot_pca_clustering: bool = False):
+#     """
+#     DEPRECATED. Use plot_candidate_partitions_by_pca followed by select_pcs_and_partition_data instead.
+#     """
+#     pca = PCA(n_pca_components).fit(x)
+#     x_transformed = pca.transform(x)
+#     explained_variance = np.round(pca.explained_variance_ratio_.cumsum(), 2)
+#     print("Variance explained by PC's:")
+#     print(explained_variance)
+#     clusters = KMeans(n_clusters=n_clusters, n_init=10).fit(x_transformed[:,[1,2]])
+#     x["partition"] = clusters.labels_ + 1
+#     if plot_pca_clustering:
+#         components = x_transformed
+#         labels = {
+#             str(i): f"PC {i + 1} ({var:.1f}%)" for i, var in enumerate(pca.explained_variance_ratio_ * 100)
+#         }
+#         dimensions = range(5) if n_pca_components >= 5 else range(n_pca_components)
+#
+#         fig = px.scatter_matrix(
+#             components,
+#             labels=labels,
+#             dimensions=dimensions,
+#             color=x["partition"]
+#         )
+#         fig.update_traces(diagonal_visible=False)
+#         fig.show()
+#     return x
 
 
 def check_alarm_sparsity(y_true, y_pred):

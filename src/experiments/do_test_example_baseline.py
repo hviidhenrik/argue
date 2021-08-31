@@ -1,5 +1,7 @@
 import os
 
+from src.utils.experiment_logger import ExperimentLogger
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
 from src.models.baseline_autoencoder import BaselineAutoencoder
@@ -36,6 +38,10 @@ if __name__ == "__main__":
                   learning_rate=0.0001,
                   validation_split=1/5)
         # model.save()
+
+    # save hyperparameters and other model info to csv
+    logger = ExperimentLogger()
+    logger.save_model_parameter_log(model, "test_example_baselineAE")
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})

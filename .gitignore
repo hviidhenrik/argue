@@ -9,10 +9,14 @@ logs/
 # C extensions
 *.so
 *.png
+# consider removing .csv and simply adding the individual data folders instead to get logs into the remote repo
 *.csv
 *.pickle
 *.zip
+*.Rhistory
+*.Rdata
 archive/
+archived/
 deprecated/
 
 

@@ -1,19 +1,22 @@
 import os
 
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
-from src.utils.experiment_logger import ExperimentLogger
 from src.models.argue import ARGUE
 from src.utils.misc import *
 from src.data.utils import *
 
 if __name__ == "__main__":
     set_seed(1234)
-    # make some data
-    x_train = pd.DataFrame({"x1": [0.983, 0.992, 0.9976, 0.978, 0.987, 0.01, 0.003, 0.06, 0.002, 0.05],
-                            "x2": [0.978, 0.988, 0.969, 0.986, 0.9975, 0.001, 0.04, 0.0031, 0.0721, 0.0034]})
-    x_train = partition_by_quantiles(x_train, "x1", quantiles=[0, 0.5, 1])
+
+    path = get_data_path() / "simulated_data"
+    df_phase1 = pd.read_csv(path / f"data_simulated_VAR1_phase1.csv")
+    df_phase2 = pd.read_csv(path / f"data_simulated_VAR1_phase2.csv")
+
+    # subset data on the simulationRun (the random seed used in the TEP generation) asd
+    # simulation_run = 1
+    # df_phase1 = df_phase1[df_phase1["simulationRun"] == simulation_run]
+    # df_phase2 = df_phase2[df_phase2["simulationRun"] == simulation_run]
 
     # USE_SAVED_MODEL = True
     USE_SAVED_MODEL = False
@@ -48,16 +51,12 @@ if __name__ == "__main__":
                   alarm_decay_after_epochs=None,
                   gating_decay_after_epochs=None,
                   decay_rate=0.5, fp_penalty=0, fn_penalty=0,
-                  validation_split=1/5,
+                  validation_split=1 / 5,
                   n_noise_samples=None)
         # model.save()
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
-
-    # save hyperparameters and other model info to csv
-    logger = ExperimentLogger()
-    logger.save_model_parameter_log(model, "test_example_argue")
 
     # predict the mixed data
     final_preds = np.round(model.predict(anomalies), 4)

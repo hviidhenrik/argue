@@ -12,11 +12,12 @@ from src.config.definitions import *
 from src.data.utils import *
 from src.utils.misc import *
 from src.utils.model import *
+from src.models.base_model import BaseModel
 
 plt.style.use("seaborn")
 
 
-class ARGUELite:
+class ARGUELite(BaseModel):
     """
     ARGUELite is a light-weight, standalone version of the more complicated ARGUE anomaly detector.
     It features
@@ -30,6 +31,7 @@ class ARGUELite:
         input_dim: int = 3,
         latent_dim: int = 2,
         verbose: int = 1,
+        model_name: str = "",
     ):
         self.input_dim = input_dim
         self.number_of_decoders = 1
@@ -44,6 +46,7 @@ class ARGUELite:
         self.input_to_activations = None
         self.history = None
         self.verbose = verbose
+        super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
         decoder_number = decoder.name[8:]
@@ -150,6 +153,20 @@ class ARGUELite:
         alarm_l2: Optional[float] = None,
     ):
 
+        self.hyperparameters = {"input_dim": self.input_dim, "latent_dim": self.latent_dim,
+                                "encoder_layers": encoder_hidden_layers, "decoder_layers": decoders_hidden_layers,
+                                "alarm_layers": alarm_hidden_layers, "N_decoders": self.number_of_decoders,
+                                "encoder_activation": encoder_activation,
+                                "decoder_activation": decoders_activation,
+                                "alarm_activation": alarm_activation,
+                                "use_encoder_activations_in_alarm": use_encoder_activations_in_alarm,
+                                "use_latent_activations_in_encoder_activations": use_latent_activations_in_encoder_activations,
+                                "use_decoder_outputs_in_decoder_activations": use_decoder_outputs_in_decoder_activations,
+                                "encoder_dropout_frac": encoder_dropout_frac, "decoder_dropout_frac": decoders_dropout_frac,
+                                "alarm_dropout_frac": alarm_dropout_frac,
+                                "autoencoder_l1": autoencoder_l1, "autoencoder_l2": autoencoder_l2,
+                                "alarm_l1": alarm_l1, "alarm_l2": alarm_l2,
+                                }
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
             encoder_activation = all_activations
@@ -171,6 +188,8 @@ class ARGUELite:
         # set constants
         self.encoder_activation_dim = self.encoder.get_activation_dim()
         self.decoder_activation_dim = int(np.sum(decoders_hidden_layers))
+        self.hyperparameters.update({"N_encoder_activations": self.encoder_activation_dim,
+                                     "N_decoder_activations": self.decoder_activation_dim})
         if use_decoder_outputs_in_decoder_activations:
             self.decoder_activation_dim += self.input_dim
 
@@ -311,6 +330,17 @@ class ARGUELite:
         reduce_lr_patience: int = 10,
         noise_factor: float = 0.0,
     ):
+        self.hyperparameters.update(
+            {"validation_split": validation_split, "autoencoder_epochs": autoencoder_epochs,
+             "alarm_epochs": alarm_epochs, "autoencoder_learning_rate": autoencoder_learning_rate,
+             "alarm_learning_rate": alarm_learning_rate, "autoencoder_batch_size": autoencoder_batch_size,
+             "alarm_batch_size": alarm_batch_size, "n_noise_samples": n_noise_samples,
+             "noise_stdevs_away": noise_stdevs_away, "noise_stdev": noise_stdev,
+             "noise_factor": noise_factor, "stop_early": stop_early,
+             "stop_early_patience": stop_early_patience, "reduce_lr_on_plateau": reduce_lr_on_plateau,
+             "reduce_lr_by_factor": reduce_lr_by_factor, "reduce_lr_patience": reduce_lr_patience,
+             }
+        )
 
         start = time.time()
         autoencoder_epochs = (
@@ -534,68 +564,68 @@ class ARGUELite:
             fig = df_all[cols_to_plot].plot(subplots=True)
         return fig
 
-    def save(self, path: Union[Path, str] = None, model_name: str = None):
-        def _save_models_in_dict(model_dict: Dict):
-            for name, model in model_dict.items():
-                model.save(path / name)
-
-        vprint(self.verbose, "\nSaving model...\n")
-        model_name = model_name if model_name else "argue_lite"
-        path = get_serialized_models_path() / model_name if not path else path
-
-        # iterate over all the different item types in the self dictionary to be saved
-        non_model_attributes_dict = {}
-        with tqdm(total=len(vars(self))) as pbar:
-            for name, attribute in vars(self).items():
-                if isinstance(attribute, Network):
-                    attribute.save(path / attribute.name)
-                elif isinstance(attribute, dict):
-                    _save_models_in_dict(attribute)
-                elif isinstance(attribute, Functional):
-                    attribute.save(path / name)
-                else:
-                    non_model_attributes_dict[name] = attribute
-                pbar.update(1)
-
-        with open(path / "non_model_attributes.pkl", "wb") as file:
-            pickle.dump(non_model_attributes_dict, file)
-
-        vprint(self.verbose, f"... Model saved succesfully in {path}")
-
-    def load(self, path: Union[Path, str] = None, model_name: str = None):
-        print("\nLoading model...\n")
-        model_name = model_name if model_name else "argue_lite"
-        path = get_serialized_models_path() / model_name if not path else path
-
-        # finally, load the dictionary storing the builtin/simple types, e.g. ints
-        with open(path / "non_model_attributes.pkl", "rb") as file:
-            non_model_attributes_dict = pickle.load(file)
-        for name, attribute in non_model_attributes_dict.items():
-            vars(self)[name] = attribute
-
-        # an untrained model needs to be built before we can start loading it
-        self.verbose = False
-        self.build_model()
-
-        # iterate over all the different item types to be loaded into the untrained model
-        with tqdm(total=len(vars(self))) as pbar:
-            for name, attribute in vars(self).items():
-                if isinstance(attribute, Network):
-                    attribute.load(path / name)
-                elif isinstance(attribute, Functional):
-                    vars(self)[name] = tf.keras.models.load_model(
-                        path / name, compile=False
-                    )
-                elif isinstance(attribute, dict):
-                    for item_name, item_in_dict in attribute.items():
-                        if isinstance(item_in_dict, Network):
-                            item_in_dict.load(path / item_in_dict.name)
-                        elif isinstance(item_in_dict, Functional):
-                            vars(self)[name][item_name] = tf.keras.models.load_model(
-                                path / item_name, compile=False
-                            )
-                pbar.update(1)
-
-        print("... Model loaded and ready!")
-
-        return self
+    # def save(self, path: Union[Path, str] = None, model_name: str = None):
+    #     def _save_models_in_dict(model_dict: Dict):
+    #         for name, model in model_dict.items():
+    #             model.save(path / name)
+    #
+    #     vprint(self.verbose, "\nSaving model...\n")
+    #     model_name = model_name if model_name else "argue_lite"
+    #     path = get_serialized_models_path() / model_name if not path else path
+    #
+    #     # iterate over all the different item types in the self dictionary to be saved
+    #     non_model_attributes_dict = {}
+    #     with tqdm(total=len(vars(self))) as pbar:
+    #         for name, attribute in vars(self).items():
+    #             if isinstance(attribute, Network):
+    #                 attribute.save(path / attribute.name)
+    #             elif isinstance(attribute, dict):
+    #                 _save_models_in_dict(attribute)
+    #             elif isinstance(attribute, Functional):
+    #                 attribute.save(path / name)
+    #             else:
+    #                 non_model_attributes_dict[name] = attribute
+    #             pbar.update(1)
+    #
+    #     with open(path / "non_model_attributes.pkl", "wb") as file:
+    #         pickle.dump(non_model_attributes_dict, file)
+    #
+    #     vprint(self.verbose, f"... Model saved succesfully in {path}")
+    #
+    # def load(self, path: Union[Path, str] = None, model_name: str = None):
+    #     print("\nLoading model...\n")
+    #     model_name = model_name if model_name else "argue_lite"
+    #     path = get_serialized_models_path() / model_name if not path else path
+    #
+    #     # finally, load the dictionary storing the builtin/simple types, e.g. ints
+    #     with open(path / "non_model_attributes.pkl", "rb") as file:
+    #         non_model_attributes_dict = pickle.load(file)
+    #     for name, attribute in non_model_attributes_dict.items():
+    #         vars(self)[name] = attribute
+    #
+    #     # an untrained model needs to be built before we can start loading it
+    #     self.verbose = False
+    #     self.build_model()
+    #
+    #     # iterate over all the different item types to be loaded into the untrained model
+    #     with tqdm(total=len(vars(self))) as pbar:
+    #         for name, attribute in vars(self).items():
+    #             if isinstance(attribute, Network):
+    #                 attribute.load(path / name)
+    #             elif isinstance(attribute, Functional):
+    #                 vars(self)[name] = tf.keras.models.load_model(
+    #                     path / name, compile=False
+    #                 )
+    #             elif isinstance(attribute, dict):
+    #                 for item_name, item_in_dict in attribute.items():
+    #                     if isinstance(item_in_dict, Network):
+    #                         item_in_dict.load(path / item_in_dict.name)
+    #                     elif isinstance(item_in_dict, Functional):
+    #                         vars(self)[name][item_name] = tf.keras.models.load_model(
+    #                             path / item_name, compile=False
+    #                         )
+    #             pbar.update(1)
+    #
+    #     print("... Model loaded and ready!")
+    #
+    #     return self

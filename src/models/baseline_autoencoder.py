@@ -11,11 +11,12 @@ from src.config.definitions import *
 from src.data.utils import *
 from src.utils.misc import *
 from src.utils.model import *
+from src.models.base_model import BaseModel
 
 plt.style.use("seaborn")
 
 
-class BaselineAutoencoder:
+class BaselineAutoencoder(BaseModel):
     """
     BaselineAutoencoder is a baseline autoencoder model to benchmark ARGUE model types against
     """
@@ -27,6 +28,7 @@ class BaselineAutoencoder:
         residual_function: tf.keras.losses.Loss = tf.keras.losses.MeanAbsoluteError,
         test_set_quantile_for_threshold: float = 0.995,
         verbose: int = 1,
+        model_name: str = ""
     ):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -37,9 +39,11 @@ class BaselineAutoencoder:
         self.residual_function = residual_function(
             reduction=tf.keras.losses.Reduction.NONE
         )
+        self.residuals = None
         self.anomaly_threshold = None
         self.test_set_quantile_for_threshold = test_set_quantile_for_threshold
         self.verbose = verbose
+        super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
         inputs = self.encoder.keras_model.input
@@ -55,8 +59,8 @@ class BaselineAutoencoder:
 
     def _compute_anomaly_threshold(self, x_val):
         predictions = self.input_to_decoders.predict(x_val)
-        residual = self.residual_function(x_val, predictions).numpy()
-        return np.quantile(residual, self.test_set_quantile_for_threshold)
+        self.residuals = self.residual_function(x_val, predictions).numpy()
+        return np.quantile(self.residuals, self.test_set_quantile_for_threshold)
 
     def build_model(
         self,
@@ -71,7 +75,14 @@ class BaselineAutoencoder:
         autoencoder_l1: Optional[float] = None,
         autoencoder_l2: Optional[float] = None,
     ):
-
+        self.hyperparameters = {"input_dim": self.input_dim, "latent_dim": self.latent_dim,
+                                "encoder_layers": encoder_hidden_layers, "decoder_layers": decoders_hidden_layers,
+                                "encoder_activation": encoder_activation, "decoder_activation": decoders_activation,
+                                "test_set_quantile_for_threshold": self.test_set_quantile_for_threshold,
+                                "residual_function": self.residual_function,
+                                "encoder_dropout_frac": encoder_dropout_frac, "decoder_dropout_frac": decoders_dropout_frac,
+                                "autoencoder_l1": autoencoder_l1, "autoencoder_l2": autoencoder_l2,
+                                }
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
             encoder_activation = all_activations
@@ -156,7 +167,13 @@ class BaselineAutoencoder:
         reduce_lr_patience: int = 10,
         noise_factor: float = 0.0,
     ):
-
+        self.hyperparameters.update(
+            {"validation_split": validation_split, "batch_size": batch_size, "learning_rate": learning_rate,
+             "noise_factor": noise_factor, "stop_early": stop_early,
+             "stop_early_patience": stop_early_patience, "reduce_lr_on_plateau": reduce_lr_on_plateau,
+             "reduce_lr_by_factor": reduce_lr_by_factor, "reduce_lr_patience": reduce_lr_patience,
+             }
+        )
         start = time.time()
 
         # form initial training data making sure labels and partitions are right
@@ -225,6 +242,7 @@ class BaselineAutoencoder:
         self.anomaly_threshold = self._compute_anomaly_threshold(
             autoencoder_val_dataset_noisy
         )
+        self.hyperparameters["anomaly_threshold"] = self.anomaly_threshold
 
         end = time.time()
         time_elapsed_string = make_time_elapsed_string(end - start, 180)
@@ -242,6 +260,11 @@ class BaselineAutoencoder:
             df_residuals["residual"] >= self.anomaly_threshold
         )
         return df_residuals["anomaly"]
+
+    def predict_residuals(self, x):
+        predictions = self.input_to_decoders.predict(x)
+        residuals = self.residual_function(x, predictions).numpy()
+        return pd.DataFrame({"residual": residuals}, index=x.index)
 
     def predict_plot_anomalies(
         self,
@@ -355,68 +378,68 @@ class BaselineAutoencoder:
             fig = df_all[cols_to_plot].plot(subplots=True)
         return fig
 
-    def save(self, path: Union[Path, str] = None, model_name: str = None):
-        def _save_models_in_dict(model_dict: Dict):
-            for name, model in model_dict.items():
-                model.save(path / name)
-
-        vprint(self.verbose, "\nSaving model...\n")
-        model_name = model_name if model_name else "baseline_autoencoder"
-        path = get_serialized_models_path() / model_name if not path else path
-
-        # iterate over all the different item types in the self dictionary to be saved
-        non_model_attributes_dict = {}
-        with tqdm(total=len(vars(self))) as pbar:
-            for name, attribute in vars(self).items():
-                if isinstance(attribute, Network):
-                    attribute.save(path / attribute.name)
-                elif isinstance(attribute, dict):
-                    _save_models_in_dict(attribute)
-                elif isinstance(attribute, Functional):
-                    attribute.save(path / name)
-                else:
-                    non_model_attributes_dict[name] = attribute
-                pbar.update(1)
-
-        with open(path / "non_model_attributes.pkl", "wb") as file:
-            pickle.dump(non_model_attributes_dict, file)
-
-        vprint(self.verbose, f"... Model saved succesfully in {path}")
-
-    def load(self, path: Union[Path, str] = None, model_name: str = None):
-        print("\nLoading model...\n")
-        model_name = model_name if model_name else "baseline_autoencoder"
-        path = get_serialized_models_path() / model_name if not path else path
-
-        # finally, load the dictionary storing the builtin/simple types, e.g. ints
-        with open(path / "non_model_attributes.pkl", "rb") as file:
-            non_model_attributes_dict = pickle.load(file)
-        for name, attribute in non_model_attributes_dict.items():
-            vars(self)[name] = attribute
-
-        # an untrained model needs to be built before we can start loading it
-        self.verbose = False
-        self.build_model()
-
-        # iterate over all the different item types to be loaded into the untrained model
-        with tqdm(total=len(vars(self))) as pbar:
-            for name, attribute in vars(self).items():
-                if isinstance(attribute, Network):
-                    attribute.load(path / name)
-                elif isinstance(attribute, Functional):
-                    vars(self)[name] = tf.keras.models.load_model(
-                        path / name, compile=False
-                    )
-                elif isinstance(attribute, dict):
-                    for item_name, item_in_dict in attribute.items():
-                        if isinstance(item_in_dict, Network):
-                            item_in_dict.load(path / item_in_dict.name)
-                        elif isinstance(item_in_dict, Functional):
-                            vars(self)[name][item_name] = tf.keras.models.load_model(
-                                path / item_name, compile=False
-                            )
-                pbar.update(1)
-
-        print("... Model loaded and ready!")
-
-        return self
+    # def save(self, path: Union[Path, str] = None, model_name: str = None):
+    #     def _save_models_in_dict(model_dict: Dict):
+    #         for name, model in model_dict.items():
+    #             model.save(path / name)
+    #
+    #     vprint(self.verbose, "\nSaving model...\n")
+    #     model_name = model_name if model_name else "baseline_autoencoder"
+    #     path = get_serialized_models_path() / model_name if not path else path
+    #
+    #     # iterate over all the different item types in the self dictionary to be saved
+    #     non_model_attributes_dict = {}
+    #     with tqdm(total=len(vars(self))) as pbar:
+    #         for name, attribute in vars(self).items():
+    #             if isinstance(attribute, Network):
+    #                 attribute.save(path / attribute.name)
+    #             elif isinstance(attribute, dict):
+    #                 _save_models_in_dict(attribute)
+    #             elif isinstance(attribute, Functional):
+    #                 attribute.save(path / name)
+    #             else:
+    #                 non_model_attributes_dict[name] = attribute
+    #             pbar.update(1)
+    #
+    #     with open(path / "non_model_attributes.pkl", "wb") as file:
+    #         pickle.dump(non_model_attributes_dict, file)
+    #
+    #     vprint(self.verbose, f"... Model saved succesfully in {path}")
+    #
+    # def load(self, path: Union[Path, str] = None, model_name: str = None):
+    #     print("\nLoading model...\n")
+    #     model_name = model_name if model_name else "baseline_autoencoder"
+    #     path = get_serialized_models_path() / model_name if not path else path
+    #
+    #     # finally, load the dictionary storing the builtin/simple types, e.g. ints
+    #     with open(path / "non_model_attributes.pkl", "rb") as file:
+    #         non_model_attributes_dict = pickle.load(file)
+    #     for name, attribute in non_model_attributes_dict.items():
+    #         vars(self)[name] = attribute
+    #
+    #     # an untrained model needs to be built before we can start loading it
+    #     self.verbose = False
+    #     self.build_model()
+    #
+    #     # iterate over all the different item types to be loaded into the untrained model
+    #     with tqdm(total=len(vars(self))) as pbar:
+    #         for name, attribute in vars(self).items():
+    #             if isinstance(attribute, Network):
+    #                 attribute.load(path / name)
+    #             elif isinstance(attribute, Functional):
+    #                 vars(self)[name] = tf.keras.models.load_model(
+    #                     path / name, compile=False
+    #                 )
+    #             elif isinstance(attribute, dict):
+    #                 for item_name, item_in_dict in attribute.items():
+    #                     if isinstance(item_in_dict, Network):
+    #                         item_in_dict.load(path / item_in_dict.name)
+    #                     elif isinstance(item_in_dict, Functional):
+    #                         vars(self)[name][item_name] = tf.keras.models.load_model(
+    #                             path / item_name, compile=False
+    #                         )
+    #             pbar.update(1)
+    #
+    #     print("... Model loaded and ready!")
+    #
+    #     return self

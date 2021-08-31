@@ -3,7 +3,8 @@ This script cleans the data from feedwater pump 30 at SSV
 """
 import logging
 import sys
-from src.data.ssv_feedwater_pump.ssv_fwp_data_utility_functions import *
+from src.data.ssv_fwp_data_utility_functions import *
+from src.data.utils import *
 
 PUMP_NUMBER = "30"
 # SMALL_DATASET = True
@@ -24,25 +25,20 @@ if __name__ == "__main__":
     DATASET_SIZE = get_dataset_size(SMALL_DATASET)
 
     # --------------------------
-    logger.info("===== Feedwater pump 30 data cleaning script =====")
+    logger.info(f"===== Feedwater pump {PUMP_NUMBER} data cleaning script =====")
 
     # load data
-    filename = f"data_pump_30_{DATASET_SIZE}.csv"
-    df = df = pd.read_csv(filename, index_col="timelocal")
+    path = get_data_path() / "ssv_feedwater_pump"
+    df = pd.read_csv(path / f"data_pump_{PUMP_NUMBER}_{DATASET_SIZE}.csv", index_col="timelocal")
     N_rows_original = df.shape[0]
     df = df.dropna().drop_duplicates()
 
     logger.info(f"Raw data period: {df.index.min()} to {df.index.max()}")
 
     # choose initial data period
-    # df = df.loc["2019-08-13":]
+    df = pd.concat([df.loc["2019-08-01 23:59:59": "2019-12-01 23:59:59"],
+                    df.loc["2020-02-30 23:59:59": "2020-09-14 23:59:59"]])
     df = make_feature_engineered_tags(df)
-    # df = df[["flow_intermediate_area", "flow_after_pump"]]
-    # df["diff"] = df["flow_intermediate_area"] - df["flow_after_pump"]
-    # df["diff"].rolling(40).mean().plot()
-    # plt.show()
-
-    df1 = df[(df["temp_slipring_diff"] < 100) & (df["temp_slipring_diff"] > 20)]
 
     plot_effect_vs_flow(df, PUMP_NUMBER, "RAW DATA", save=SAVE_PLOTS)
     plt.show()
@@ -50,8 +46,6 @@ if __name__ == "__main__":
     df = apply_SME_bounds_filter(df, PUMP_NUMBER, megawatt_lower=1.1, megawatt_upper=10,
                                  flow_lower_bound=38, flow_upper_bound=200)
     logger.info(f"Training data period: {df.index.min()} to {df.index.max()}")
-
-    # plot raw data as it is
 
     # set apriori known limits for normal operation cf. Rasmus and Jonas
     df_not_cleaned = df.copy()
@@ -66,6 +60,7 @@ if __name__ == "__main__":
         df, PUMP_NUMBER, "AFTER BOUNDS FILTER", save=SAVE_PLOTS
     )
 
+    # define linear cut to sift away some bad data
     plt.plot(df[f"effect_pump_30_MW"], 18 * df[f"effect_pump_30_MW"] + 3)
     plt.show()
 
@@ -123,41 +118,6 @@ if __name__ == "__main__":
     kde_filename_this_pump_active = (
         f"KDE_pump_{PUMP_NUMBER}_active_{DATASET_SIZE}_dataset.pkl"
     )
-    # kde_filename_both_active = f"KDE_pump_both_active_{DATASET_SIZE}_dataset.pkl"
-    # if USE_SAVED_KDE:
-    #     kernel_this_pump_active = load_kde(kde_filename_this_pump_active)
-    #     kernel_both_active = load_kde(kde_filename_both_active)
-    # else:
-    #     kernel_this_pump_active = estimate_normal_operation_kde_from_effect_vs_flow(
-    #         df_this_pump_active, PUMP_NUMBER, subsample_size=1
-    #     )
-    #     kernel_both_active = estimate_normal_operation_kde_from_effect_vs_flow(
-    #         df_both_active, PUMP_NUMBER, subsample_size=1
-    #     )
-    #     save_kde(kernel_this_pump_active, filename=kde_filename_this_pump_active)
-    #     save_kde(kernel_both_active, filename=kde_filename_both_active)
-    #
-    # df_normal_this, df_noise_this = clean_data_using_kde(
-    #     df_this_pump_active, kernel_this_pump_active, PUMP_NUMBER, quantile=0.001
-    # )
-    # plot_kde_effect_vs_intermediate_flow(
-    #     df_normal_this,
-    #     df_noise_this,
-    #     PUMP_NUMBER,
-    #     title_addendum=f"ONLY {PUMP_NUMBER} ACTIVE",
-    #     save=SAVE_PLOTS,
-    # )
-    #
-    # df_normal_both, df_noise_both = clean_data_using_kde(
-    #     df_both_active, kernel_both_active, PUMP_NUMBER, quantile=0.00075
-    # )
-    # plot_kde_effect_vs_intermediate_flow(
-    #     df_normal_both,
-    #     df_noise_both,
-    #     PUMP_NUMBER,
-    #     title_addendum="BOTH ACTIVE",
-    #     save=SAVE_PLOTS,
-    # )
 
     df_normal_this = df_this_pump_active
     df_normal_both = df_both_active
@@ -236,15 +196,8 @@ if __name__ == "__main__":
         f"of original ({N_rows_after_cleaning} of {N_rows_original})"
     )
 
-    save_local_pump_data(
-        df_final,
-        small_dataset=SMALL_DATASET,
-        pump_number=PUMP_NUMBER,
-        default_filename_addendum="_cleaned",
-    )
-    save_local_pump_data(
-        df_discarded_rows,
-        small_dataset=SMALL_DATASET,
-        pump_number=PUMP_NUMBER,
-        default_filename_addendum="_DISCARDED",
-    )
+    df_final = df_final.drop(columns=["effect_pump_10_MW"])
+
+    # make columns with sample number and binary fault status as the first columns in the df
+    df_final = make_sample_and_faulty_cols(df_final)
+    save_local_data(df_final, filename=path / "data_pump30_phase1.csv", index="timelocal")
