@@ -1,8 +1,3 @@
-# SmartPlant Predictive Maintenance PhD repo
-This repository is the home of the industrial PhD project being carried out in the SmartPlant Predictive Maintenance (PdM) team in Bioenergy. 
-The project aims to improve what we already do and find new and better ways of doing PdM together with the DTU Compute at the section for 
-statistics and data analysis.
-
 ## ARGUE anomaly detection
 ARGUE is the abbreviation of Anomaly detection by Recombining Gated Unsupervised Experts. This is a model for detecting
 anomalous data samples based on a combination of neural networks working together based on an approach called 

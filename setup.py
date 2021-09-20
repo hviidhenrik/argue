@@ -1,10 +1,10 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="phd-models",
-    version="1.0",
-    description="Predictive maintenance models for ...",
-    author="Ørsted",
+    name="phd-ARGUE",
+    version="0.9.1",
+    description="ARGUE anomaly detection",
+    author="Henrik Hviid Hansen",
     packages=find_packages(),
     classifiers=["Programming Language :: Python :: 3", "Operating System :: OS Independent",],
 )
