@@ -17,29 +17,7 @@ from argue.models.base_model import BaseModel
 plt.style.use("seaborn")
 
 
-# TODO:
-#  Required:
-#  - make plotting features
-#     - learning curves
-#  - make AUC evaluation
-#  Nice to have:
-#  - a clustering method could be standard partitioning method, if no class vector is given
-#  - make data handling more clean (maybe make a class for handling this)
-#  - class ARGUEPrinter that takes an ARGUE obj and prints nicely readable output from it
-#  - more realistic anomalies for the noise counter examples
-#  - early stopping
-#  Experimental:
-#  - could the raw alarm probabilities be used without the gating if we simply take the minimum probability over all
-#    the models for each datapoint?
-#  - could data be sliced vertically instead of horizontally? So each decoder is responsible for a
-#    predetermined set of variables instead of rows? Could also be used to model several pumps at the same time, or
-#    have several submodels inside one ARGUE model
-#  - look into variable importance / fault contribution analysis
-#  - look into decorrelating the variables in the latent space
-#  Speedups
-#  - once autoencoder is trained, simply extract activations from it for each datapoint and train alarm&gating on these,
-#    instead of calling the activation models every iteration
-#
+
 
 
 class ARGUE(BaseModel):
@@ -444,6 +422,7 @@ class ARGUE(BaseModel):
         fn_penalty: float = 0,
         fn_tolerance: float = 0.3,
         plot_normal_vs_noise: bool = False,
+        plot_learning_rate_decay: bool = False,
     ):
         self.hyperparameters.update(
             {"validation_split": validation_split, "autoencoder_epochs": autoencoder_epochs,
@@ -616,7 +595,7 @@ class ARGUE(BaseModel):
                 dataset_rows=ae_dataset_rows,
                 batch_size=autoencoder_batch_size,
                 total_epochs=autoencoder_epochs,
-                plot_schedule=True,
+                plot_schedule=plot_learning_rate_decay,
             )
 
         # TODO tf.function throws error when run in "fwp30_argue.py", but not in the do_test_example.py
@@ -733,7 +712,7 @@ class ARGUE(BaseModel):
                 dataset_rows=x_train.shape[0],
                 batch_size=alarm_gating_batch_size,
                 total_epochs=alarm_gating_epochs,
-                plot_schedule=True,
+                plot_schedule=plot_learning_rate_decay,
             )
             final_optimizer = self._init_optimizer_with_lr_schedule(
                 optimizer=optimizer,
@@ -758,7 +737,7 @@ class ARGUE(BaseModel):
                 dataset_rows=x_train.shape[0],
                 batch_size=alarm_gating_batch_size,
                 total_epochs=alarm_gating_epochs,
-                plot_schedule=True,
+                plot_schedule=plot_learning_rate_decay,
             )
 
         # training loop

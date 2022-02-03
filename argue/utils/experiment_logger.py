@@ -9,19 +9,20 @@ from argue.utils.model import *
 
 class ExperimentLogger:
     def __init__(self):
-        self.save_path = get_experiment_logs_path()
+        self.save_path = None
         self.experiment_id = None
 
     def save_model_parameter_log(self,
                                  model: BaseModel,
                                  experiment_name: Optional[str],
-                                 path: Optional[Path] = None):
-        path = path if path else self.save_path
+                                 save_path: Union[str, Path]):
+        assert save_path is not None, "No save path for model logs specified"
+        self.save_path = Path(save_path)
         date_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
         experiment_id = self._determine_experiment_id()
         params_to_save = {"model_name": model.model_name, "run_date_time": date_time, "experiment_id": experiment_id}
         params_to_save.update(model.hyperparameters)
-        filename = path / f"{experiment_name}_ID{experiment_id}.csv"
+        filename = self.save_path / f"{experiment_name}_ID{experiment_id}.csv"
         self._save_dict_as_csv(params_to_save, filename=filename)
 
     def _determine_experiment_id(self):

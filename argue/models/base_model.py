@@ -1,18 +1,12 @@
 import pickle
-import time
 from typing import Dict
 
-import matplotlib.ticker as ticker
-from sklearn.model_selection import train_test_split
-from sklearn.utils import shuffle
-from tensorflow.keras.layers import Input, Dense
 from tensorflow.python.keras.engine.functional import Functional
 from tqdm import tqdm
 
-from argue.config.definitions import *
+from argue.data.utils import *
 from argue.utils.misc import *
 from argue.utils.model import *
-from argue.data.utils import *
 
 
 class BaseModel:
@@ -20,41 +14,41 @@ class BaseModel:
         self.model_name: Optional[str] = model_name
         self.hyperparameters: Optional[Dict] = None
 
-    def save(self, path: Union[Path, str] = None, model_name: str = None):
+    def save(self, save_path: Union[Path, str] = None, model_name: str = None):
+        assert save_path is not None, "No path specified to save model to"
+        vprint(self.verbose, f"\nSaving model to: {save_path}\n")
+        save_path = Path(save_path)
+
         def _save_models_in_dict(model_dict: Dict):
             for name, model in model_dict.items():
-                model.save(path / name)
-
-        vprint(self.verbose, "\nSaving model...\n")
-        model_name = model_name if model_name else "argue"
-        path = get_serialized_models_path() / model_name if not path else path
+                model.save(save_path / name)
 
         # iterate over all the different item types in the self dictionary to be saved
         non_model_attributes_dict = {}
         with tqdm(total=len(vars(self))) as pbar:
             for name, attribute in vars(self).items():
                 if isinstance(attribute, Network):
-                    attribute.save(path / attribute.name)
-                elif isinstance(attribute, dict):
+                    attribute.save(save_path / attribute.name)
+                elif isinstance(attribute, dict) and attribute != self.hyperparameters:
                     _save_models_in_dict(attribute)
                 elif isinstance(attribute, Functional):
-                    attribute.save(path / name)
+                    attribute.save(save_path / name)
                 else:
                     non_model_attributes_dict[name] = attribute
                 pbar.update(1)
 
-        with open(path / "non_model_attributes.pkl", "wb") as file:
+        with open(save_path / "non_model_attributes.pkl", "wb") as file:
             pickle.dump(non_model_attributes_dict, file)
 
-        vprint(self.verbose, f"... Model saved succesfully in {path}")
+        vprint(self.verbose, f"... Model saved succesfully in {save_path}")
 
-    def load(self, path: Union[Path, str] = None, model_name: str = None):
-        print("\nLoading model...\n")
-        model_name = model_name if model_name else "argue"
-        path = get_serialized_models_path() / model_name if not path else path
+    def load(self, load_path: Union[Path, str] = None):
+        assert load_path is not None, "No path specified to load model from"
+        vprint(self.verbose, f"\nLoading model from: {load_path}\n")
+        load_path = Path(load_path)
 
         # finally, load the dictionary storing the builtin/simple types, e.g. ints
-        with open(path / "non_model_attributes.pkl", "rb") as file:
+        with open(load_path / "non_model_attributes.pkl", "rb") as file:
             non_model_attributes_dict = pickle.load(file)
         for name, attribute in non_model_attributes_dict.items():
             vars(self)[name] = attribute
@@ -67,18 +61,18 @@ class BaseModel:
         with tqdm(total=len(vars(self))) as pbar:
             for name, attribute in vars(self).items():
                 if isinstance(attribute, Network):
-                    attribute.load(path / name)
+                    attribute.load(load_path / name)
                 elif isinstance(attribute, Functional):
                     vars(self)[name] = tf.keras.models.load_model(
-                        path / name, compile=False
+                        load_path / name, compile=False
                     )
                 elif isinstance(attribute, dict):
                     for item_name, item_in_dict in attribute.items():
                         if isinstance(item_in_dict, Network):
-                            item_in_dict.load(path / item_in_dict.name)
+                            item_in_dict.load(load_path / item_in_dict.name)
                         elif isinstance(item_in_dict, Functional):
                             vars(self)[name][item_name] = tf.keras.models.load_model(
-                                path / item_name, compile=False
+                                load_path / item_name, compile=False
                             )
                 pbar.update(1)
 

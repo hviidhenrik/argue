@@ -3,10 +3,8 @@ import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # silences excessive warning messages from tensorflow
 
-from argue.utils.experiment_logger import ExperimentLogger
 from argue.models.argue import ARGUE
 from argue.utils.misc import *
-from argue.data.utils import *
 
 if __name__ == "__main__":
     set_seed(1234)
@@ -55,10 +53,6 @@ if __name__ == "__main__":
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
                               "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
 
-    # save hyperparameters and other model info to csv
-    logger = ExperimentLogger()
-    logger.save_model_parameter_log(model, "test_example_argue")
-
     # predict the mixed data
     final_preds = np.round(model.predict(anomalies), 4)
     print("Alarm probabilities:\n ", np.round(model.predict_alarm_probabilities(anomalies), 4))
@@ -66,5 +60,3 @@ if __name__ == "__main__":
     print(f"\nFinal anomaly probabilities:\n {final_preds}")
     model.predict_plot_anomalies(anomalies, true_partitions=None)
     plt.show()
-
-    # assert np.sum(final_preds - np.array([0.781, 0.9317, 0.9528, 0.9512, 0.9606, 0.9623, 0.9634, 0.9288])) == 0.0
