@@ -1,19 +1,21 @@
-import pickle
 import time
-from typing import Dict
-from tensorflow import keras
-from sklearn.model_selection import train_test_split
+from typing import List, Optional, Union
 
+import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from pandas import DataFrame
+from sklearn.decomposition import PCA
+from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
-from tensorflow.keras.layers import Input, Dense
-from tensorflow.python.keras.engine.functional import Functional
-from tqdm import tqdm
+from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.models import Model
 
-from argue.config.definitions import *
-from argue.utils.misc import *
-from argue.utils.model import *
 from argue.models.base_model import BaseModel
+from argue.utils.misc import generate_noise_samples, make_time_elapsed_string, vprint
+from argue.utils.model import Network
 
 plt.style.use("seaborn")
 
@@ -28,11 +30,7 @@ class ARGUELite(BaseModel):
     """
 
     def __init__(
-        self,
-        input_dim: int = 3,
-        latent_dim: int = 2,
-        verbose: int = 1,
-        model_name: str = "",
+        self, input_dim: int = 3, latent_dim: int = 2, verbose: int = 1, model_name: str = "",
     ):
         self.input_dim = input_dim
         self.number_of_decoders = 1
@@ -56,9 +54,7 @@ class ARGUELite(BaseModel):
         outputs = decoder.keras_model(x)
         return Model(inputs, outputs, name=f"autoencoder_{decoder_number}")
 
-    def _connect_encoder_input_with_activations(
-        self, decoder, use_encoder_activations: bool = False
-    ):
+    def _connect_encoder_input_with_activations(self, decoder, use_encoder_activations: bool = False):
         inputs = self.encoder.keras_model.input
         x = self.encoder.keras_model(inputs)
         outputs = decoder.activation_model(x)
@@ -86,12 +82,7 @@ class ARGUELite(BaseModel):
 
     @staticmethod
     def _prepare_data(
-        n_noise_samples,
-        noise_stdev,
-        noise_stdevs_away,
-        plot_normal_vs_noise,
-        validation_split,
-        x,
+        n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise, validation_split, x,
     ):
         x_copy = x.copy()
         x_copy["partition"] = 1
@@ -118,13 +109,9 @@ class ARGUELite(BaseModel):
         x_noise["partition"] = -1
         x_with_noise_and_labels = pd.concat([x_copy, x_noise]).reset_index(drop=True)
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
-        normal_vs_noise_one_hot_vector = pd.get_dummies(
-            x_with_noise_and_labels["partition"]
-        ).values
+        normal_vs_noise_one_hot_vector = pd.get_dummies(x_with_noise_and_labels["partition"]).values
         x_train, x_val, one_hot_train_labels, one_hot_val_labels = train_test_split(
-            x_with_noise_and_labels,
-            normal_vs_noise_one_hot_vector,
-            test_size=validation_split,
+            x_with_noise_and_labels, normal_vs_noise_one_hot_vector, test_size=validation_split,
         )
         x_train = x_train.reset_index(drop=True)
         x_val = x_val.reset_index(drop=True)
@@ -154,20 +141,27 @@ class ARGUELite(BaseModel):
         alarm_l2: Optional[float] = None,
     ):
 
-        self.hyperparameters = {"input_dim": self.input_dim, "latent_dim": self.latent_dim,
-                                "encoder_layers": encoder_hidden_layers, "decoder_layers": decoders_hidden_layers,
-                                "alarm_layers": alarm_hidden_layers, "N_decoders": self.number_of_decoders,
-                                "encoder_activation": encoder_activation,
-                                "decoder_activation": decoders_activation,
-                                "alarm_activation": alarm_activation,
-                                "use_encoder_activations_in_alarm": use_encoder_activations_in_alarm,
-                                "use_latent_activations_in_encoder_activations": use_latent_activations_in_encoder_activations,
-                                "use_decoder_outputs_in_decoder_activations": use_decoder_outputs_in_decoder_activations,
-                                "encoder_dropout_frac": encoder_dropout_frac, "decoder_dropout_frac": decoders_dropout_frac,
-                                "alarm_dropout_frac": alarm_dropout_frac,
-                                "autoencoder_l1": autoencoder_l1, "autoencoder_l2": autoencoder_l2,
-                                "alarm_l1": alarm_l1, "alarm_l2": alarm_l2,
-                                }
+        self.hyperparameters = {
+            "input_dim": self.input_dim,
+            "latent_dim": self.latent_dim,
+            "encoder_layers": encoder_hidden_layers,
+            "decoder_layers": decoders_hidden_layers,
+            "alarm_layers": alarm_hidden_layers,
+            "N_decoders": self.number_of_decoders,
+            "encoder_activation": encoder_activation,
+            "decoder_activation": decoders_activation,
+            "alarm_activation": alarm_activation,
+            "use_encoder_activations_in_alarm": use_encoder_activations_in_alarm,
+            "use_latent_activations_in_encoder_activations": use_latent_activations_in_encoder_activations,
+            "use_decoder_outputs_in_decoder_activations": use_decoder_outputs_in_decoder_activations,
+            "encoder_dropout_frac": encoder_dropout_frac,
+            "decoder_dropout_frac": decoders_dropout_frac,
+            "alarm_dropout_frac": alarm_dropout_frac,
+            "autoencoder_l1": autoencoder_l1,
+            "autoencoder_l2": autoencoder_l2,
+            "alarm_l1": alarm_l1,
+            "alarm_l2": alarm_l2,
+        }
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
             encoder_activation = all_activations
@@ -189,8 +183,9 @@ class ARGUELite(BaseModel):
         # set constants
         self.encoder_activation_dim = self.encoder.get_activation_dim()
         self.decoder_activation_dim = int(np.sum(decoders_hidden_layers))
-        self.hyperparameters.update({"N_encoder_activations": self.encoder_activation_dim,
-                                     "N_decoder_activations": self.decoder_activation_dim})
+        self.hyperparameters.update(
+            {"N_encoder_activations": self.encoder_activation_dim, "N_decoder_activations": self.decoder_activation_dim}
+        )
         if use_decoder_outputs_in_decoder_activations:
             self.decoder_activation_dim += self.input_dim
 
@@ -228,72 +223,53 @@ class ARGUELite(BaseModel):
             decoder_outputs.append(decoder_output_tensor)
             # connect encoder with alarm model through each decoder/expert network
 
-            alarm_output_tensor = self._connect_alarm_pair(
-                decoder, use_encoder_activations_in_alarm
-            ).output
+            alarm_output_tensor = self._connect_alarm_pair(decoder, use_encoder_activations_in_alarm).output
             alarm_outputs.append(alarm_output_tensor)
 
         self.input_to_activations = self._connect_encoder_input_with_activations(
             decoder, use_encoder_activations_in_alarm
         )
-        self.input_to_decoders = Model(
-            inputs=self.encoder.keras_model.input, outputs=decoder_outputs
-        )
+        self.input_to_decoders = Model(inputs=self.encoder.keras_model.input, outputs=decoder_outputs)
 
         self.input_to_decoders.trainable = False
         self.encoder.keras_model.trainable = True
 
-        self.input_to_alarm = Model(
-            inputs=self.encoder.keras_model.input, outputs=alarm_outputs
-        )
+        self.input_to_alarm = Model(inputs=self.encoder.keras_model.input, outputs=alarm_outputs)
 
         if make_model_visualiations:
             # if plot_model doesn't work, first pip install pydot, then pip install pydotplus, then go to:
             # https://graphviz.gitlab.io/download/ and download and install Graphviz. It must be added to
             # PATH environment variable in order to work since keras tries to call dot.exe. So
             # Graphviz\bin\ must be on the PATH.
-            figures_path = get_figures_path()
             tf.keras.utils.plot_model(
-                self.encoder.keras_model,
-                to_file=figures_path / "encoder.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.encoder.keras_model, to_file="encoder.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
                 self.encoder.activation_model,
-                to_file=figures_path / "encoder_activations.png",
+                to_file="encoder_activations.png",
                 show_shapes=True,
                 show_layer_names=True,
             )
             tf.keras.utils.plot_model(
                 self.decoder_dict["decoder_1"].keras_model,
-                to_file=figures_path / "decoder.png",
+                to_file="decoder.png",
                 show_shapes=True,
                 show_layer_names=True,
             )
             tf.keras.utils.plot_model(
                 self.decoder_dict["decoder_1"].activation_model,
-                to_file=figures_path / "decoder_activations.png",
+                to_file="decoder_activations.png",
                 show_shapes=True,
                 show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.alarm.keras_model,
-                to_file=figures_path / "alarm.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.alarm.keras_model, to_file="alarm.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.input_to_decoders,
-                to_file=figures_path / "input_to_decoders.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.input_to_decoders, to_file="input_to_decoders.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.input_to_alarm,
-                to_file=figures_path / "input_to_alarm.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.input_to_alarm, to_file="input_to_alarm.png", show_shapes=True, show_layer_names=True,
             )
 
         vprint(
@@ -332,53 +308,45 @@ class ARGUELite(BaseModel):
         noise_factor: float = 0.0,
     ):
         self.hyperparameters.update(
-            {"validation_split": validation_split, "autoencoder_epochs": autoencoder_epochs,
-             "alarm_epochs": alarm_epochs, "autoencoder_learning_rate": autoencoder_learning_rate,
-             "alarm_learning_rate": alarm_learning_rate, "autoencoder_batch_size": autoencoder_batch_size,
-             "alarm_batch_size": alarm_batch_size, "n_noise_samples": n_noise_samples,
-             "noise_stdevs_away": noise_stdevs_away, "noise_stdev": noise_stdev,
-             "noise_factor": noise_factor, "stop_early": stop_early,
-             "stop_early_patience": stop_early_patience, "reduce_lr_on_plateau": reduce_lr_on_plateau,
-             "reduce_lr_by_factor": reduce_lr_by_factor, "reduce_lr_patience": reduce_lr_patience,
-             }
+            {
+                "validation_split": validation_split,
+                "autoencoder_epochs": autoencoder_epochs,
+                "alarm_epochs": alarm_epochs,
+                "autoencoder_learning_rate": autoencoder_learning_rate,
+                "alarm_learning_rate": alarm_learning_rate,
+                "autoencoder_batch_size": autoencoder_batch_size,
+                "alarm_batch_size": alarm_batch_size,
+                "n_noise_samples": n_noise_samples,
+                "noise_stdevs_away": noise_stdevs_away,
+                "noise_stdev": noise_stdev,
+                "noise_factor": noise_factor,
+                "stop_early": stop_early,
+                "stop_early_patience": stop_early_patience,
+                "reduce_lr_on_plateau": reduce_lr_on_plateau,
+                "reduce_lr_by_factor": reduce_lr_by_factor,
+                "reduce_lr_patience": reduce_lr_patience,
+            }
         )
 
         start = time.time()
-        autoencoder_epochs = (
-            epochs if autoencoder_epochs is None else autoencoder_epochs
-        )
+        autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
         alarm_epochs = epochs if alarm_epochs is None else alarm_epochs
-        autoencoder_batch_size = (
-            batch_size if autoencoder_batch_size is None else autoencoder_batch_size
-        )
+        autoencoder_batch_size = batch_size if autoencoder_batch_size is None else autoencoder_batch_size
         alarm_batch_size = batch_size if alarm_batch_size is None else alarm_batch_size
 
         # form initial training data making sure labels and partitions are right
         vprint(
-            self.verbose,
-            "Preparing data: slicing into partitions and batches...\n"
-            f"Data dimensions: {x.shape}",
+            self.verbose, "Preparing data: slicing into partitions and batches...\n" f"Data dimensions: {x.shape}",
         )
 
         # make datasets ready
         alarm_train_labels, alarm_val_labels, x_train, x_val = self._prepare_data(
-            n_noise_samples,
-            noise_stdev,
-            noise_stdevs_away,
-            plot_normal_vs_noise,
-            validation_split,
-            x,
+            n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise, validation_split, x,
         )
-        autoencoder_train_dataset = x_train[x_train["partition"] == 1].drop(
-            columns=["partition"]
-        )
-        autoencoder_val_dataset = x_val[x_val["partition"] == 1].drop(
-            columns=["partition"]
-        )
+        autoencoder_train_dataset = x_train[x_train["partition"] == 1].drop(columns=["partition"])
+        autoencoder_val_dataset = x_val[x_val["partition"] == 1].drop(columns=["partition"])
 
-        autoencoder_optimizer = self._init_optimizer(
-            optimizer, autoencoder_learning_rate
-        )
+        autoencoder_optimizer = self._init_optimizer(optimizer, autoencoder_learning_rate)
         alarm_optimizer = self._init_optimizer(optimizer, alarm_learning_rate)
 
         autoencoder_model = self.input_to_decoders
@@ -389,40 +357,27 @@ class ARGUELite(BaseModel):
         if stop_early:
             callbacks.append(
                 tf.keras.callbacks.EarlyStopping(
-                    monitor="val_loss",
-                    patience=stop_early_patience,
-                    restore_best_weights=True,
-                    mode="min",
+                    monitor="val_loss", patience=stop_early_patience, restore_best_weights=True, mode="min",
                 )
             )
         if reduce_lr_on_plateau:
             callbacks.append(
                 tf.keras.callbacks.ReduceLROnPlateau(
-                    monitor="val_loss",
-                    factor=reduce_lr_by_factor,
-                    patience=reduce_lr_patience,
-                    verbose=1,
-                    mode="min",
+                    monitor="val_loss", factor=reduce_lr_by_factor, patience=reduce_lr_patience, verbose=1, mode="min",
                 )
             )
 
-        autoencoder_train_dataset_noisy = (
-            autoencoder_train_dataset
-            + noise_factor
-            * np.random.normal(loc=0.0, scale=1.0, size=autoencoder_train_dataset.shape)
+        autoencoder_train_dataset_noisy = autoencoder_train_dataset + noise_factor * np.random.normal(
+            loc=0.0, scale=1.0, size=autoencoder_train_dataset.shape
         )
-        autoencoder_val_dataset_noisy = (
-            autoencoder_val_dataset
-            + noise_factor
-            * np.random.normal(loc=0.0, scale=1.0, size=autoencoder_val_dataset.shape)
+        autoencoder_val_dataset_noisy = autoencoder_val_dataset + noise_factor * np.random.normal(
+            loc=0.0, scale=1.0, size=autoencoder_val_dataset.shape
         )
 
         # train autoencoder
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder ===")
         autoencoder_model.trainable = True
-        autoencoder_model.compile(
-            optimizer=autoencoder_optimizer, loss="binary_crossentropy", metrics=["MAE"]
-        )
+        autoencoder_model.compile(optimizer=autoencoder_optimizer, loss="binary_crossentropy", metrics=["MAE"])
         autoencoder_model.fit(
             x=autoencoder_train_dataset_noisy,
             y=autoencoder_train_dataset,
@@ -434,18 +389,12 @@ class ARGUELite(BaseModel):
         autoencoder_model.trainable = False
 
         # make alarm dataset from fully trained autoencoder activations
-        alarm_train_dataset = self.input_to_activations.predict(
-            x_train.drop(columns=["partition"])
-        )
-        alarm_val_dataset = self.input_to_activations.predict(
-            x_val.drop(columns=["partition"])
-        )
+        alarm_train_dataset = self.input_to_activations.predict(x_train.drop(columns=["partition"]))
+        alarm_val_dataset = self.input_to_activations.predict(x_val.drop(columns=["partition"]))
 
         # train alarm network
         vprint(self.verbose, "\n\n=== Phase 2: training alarm network ===")
-        alarm_model.compile(
-            optimizer=alarm_optimizer, loss="binary_crossentropy", metrics=["MAE"]
-        )
+        alarm_model.compile(optimizer=alarm_optimizer, loss="binary_crossentropy", metrics=["MAE"])
         alarm_model.fit(
             x=alarm_train_dataset,
             y=alarm_train_labels,
@@ -462,17 +411,13 @@ class ARGUELite(BaseModel):
     def predict(self, x: DataFrame):
         return self.input_to_alarm.predict(x)
 
-    def predict_plot_anomalies(
-        self, x, window_length: Optional[Union[int, List[int]]] = None, **kwargs
-    ):
+    def predict_plot_anomalies(self, x, window_length: Optional[Union[int, List[int]]] = None, **kwargs):
         df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
         if x.index is not None:
             df_preds.index = x.index
 
         if window_length is not None:
-            window_length = (
-                [window_length] if type(window_length) != list else window_length
-            )
+            window_length = [window_length] if type(window_length) != list else window_length
             fig, ax = plt.subplots(1, 1)
             ax.plot(df_preds, label="Anomaly probability", alpha=0.6)
             ax.xaxis.set_major_locator(ticker.LinearLocator(numticks=8))
@@ -502,14 +447,10 @@ class ARGUELite(BaseModel):
         """
 
         reconstructions = self.input_to_decoders.predict(x)
-        final_reconstructions = pd.DataFrame(
-            reconstructions, columns=x.columns, index=x.index
-        )
+        final_reconstructions = pd.DataFrame(reconstructions, columns=x.columns, index=x.index)
         return final_reconstructions
 
-    def predict_plot_reconstructions(
-        self, x: DataFrame, cols_to_plot: Optional[List[str]] = None, **kwargs
-    ):
+    def predict_plot_reconstructions(self, x: DataFrame, cols_to_plot: Optional[List[str]] = None, **kwargs):
         df_predictions = self.predict_reconstructions(x)
         col_names = x.columns
         col_names_pred = col_names + "_pred"
@@ -532,22 +473,16 @@ class ARGUELite(BaseModel):
         if graphs_in_same_plot:
             num_plots = int(df_plots.shape[1] / 2)
             fig, axes = plt.subplots(num_plots, 1, sharex=True)
-            for axis, col in zip(
-                np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)
-            ):
+            for axis, col in zip(np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)):
                 df_to_plot = df_plots.iloc[:, col : col + 2]
                 df_to_plot.columns = ["Actual", "Predicted"]
                 df_to_plot.index = pd.to_datetime(df_to_plot.index)
-                df_to_plot.index = df_to_plot.index.map(
-                    lambda t: t.strftime("%d-%m-%Y")
-                )
+                df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
                 df_to_plot.plot(ax=axes[axis], rot=15, legend=False)
                 axes[axis].set_title(df_plots.columns[col], size=10)
                 axes[axis].get_xaxis().get_label().set_visible(False)
             box = axes[axis].get_position()
-            axes[axis].set_position(
-                [box.x0, box.y0 + box.height * 0.1, box.width, box.height * 0.9]
-            )
+            axes[axis].set_position([box.x0, box.y0 + box.height * 0.1, box.width, box.height * 0.9])
             plt.legend(
                 bbox_to_anchor=(0.7, -0.01),
                 loc="lower right",

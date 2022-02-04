@@ -1,16 +1,18 @@
 import pickle
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Optional, Union
 
+import tensorflow as tf
 from tensorflow.python.keras.engine.functional import Functional
 from tqdm import tqdm
 
-from argue.data.utils import *
-from argue.utils.misc import *
-from argue.utils.model import *
+from argue.utils.misc import vprint
+from argue.utils.model import Network
 
 
 class BaseModel:
     def __init__(self, model_name: str = None):
+        self.verbose = False
         self.model_name: Optional[str] = model_name
         self.hyperparameters: Optional[Dict] = None
 
@@ -63,9 +65,7 @@ class BaseModel:
                 if isinstance(attribute, Network):
                     attribute.load(load_path / name)
                 elif isinstance(attribute, Functional):
-                    vars(self)[name] = tf.keras.models.load_model(
-                        load_path / name, compile=False
-                    )
+                    vars(self)[name] = tf.keras.models.load_model(load_path / name, compile=False)
                 elif isinstance(attribute, dict):
                     for item_name, item_in_dict in attribute.items():
                         if isinstance(item_in_dict, Network):
@@ -79,3 +79,6 @@ class BaseModel:
         print("... Model loaded and ready!")
 
         return self
+
+    def build_model(self):
+        pass

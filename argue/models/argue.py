@@ -1,33 +1,33 @@
-import pickle
 import time
-from typing import Dict
+from typing import List, Optional, Union
 
+import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from pandas import DataFrame
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
-from tensorflow.keras.layers import Input, Dense
-from tensorflow.python.keras.engine.functional import Functional
-from tqdm import tqdm
+from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.models import Model
 
-from argue.config.definitions import *
-from argue.utils.misc import *
-from argue.utils.model import *
 from argue.models.base_model import BaseModel
+from argue.utils.misc import check_alarm_sparsity, generate_noise_samples, plot_learning_schedule, vprint
+from argue.utils.model import Network
 
 plt.style.use("seaborn")
 
 
-
-
-
 class ARGUE(BaseModel):
     def __init__(
-        self,
-        input_dim: int = 3,
-        number_of_decoders: int = 2,
-        latent_dim: int = 2,
-        verbose: int = 1,
-        model_name: str = ""
+            self,
+            input_dim: int = 3,
+            number_of_decoders: int = 2,
+            latent_dim: int = 2,
+            verbose: int = 1,
+            model_name: str = "",
     ):
         self.input_dim = input_dim
         self.number_of_decoders = number_of_decoders
@@ -102,24 +102,13 @@ class ARGUE(BaseModel):
 
     @tf.function
     def _alarm_gating_validation_step(
-        self,
-        x_batch_val,
-        true_gating,
-        alarm_loss,
-        gating_loss,
-        final_loss,
-        alarm_metric,
-        gating_metric,
-        final_metric,
+            self, x_batch_val, true_gating, alarm_loss, gating_loss, final_loss, alarm_metric, gating_metric,
+            final_metric,
     ):
         true_alarm = 1 - true_gating[:, 1:]
         true_final = tf.reduce_min(true_alarm, axis=1)
-        predicted_alarm = tf.keras.layers.concatenate(
-            self.input_to_alarm(x_batch_val, training=False)
-        )
-        alarm_and_ones = tf.concat(
-            [tf.ones((predicted_alarm.shape[0], 1)), predicted_alarm], axis=1
-        )
+        predicted_alarm = tf.keras.layers.concatenate(self.input_to_alarm(x_batch_val, training=False))
+        alarm_and_ones = tf.concat([tf.ones((predicted_alarm.shape[0], 1)), predicted_alarm], axis=1)
         predicted_gating = self.input_to_gating(x_batch_val, training=False)
         predicted_prod = tf.multiply(predicted_gating, alarm_and_ones)
         predicted_final = tf.reduce_sum(predicted_prod, axis=1)
@@ -162,14 +151,14 @@ class ARGUE(BaseModel):
 
     @staticmethod
     def _init_optimizer_with_lr_schedule(
-        optimizer: str,
-        initial_learning_rate: float = 0.0003,
-        decay_after_epochs: int = 10,
-        decay_rate: float = 0.7,
-        dataset_rows: int = None,
-        batch_size: int = None,
-        total_epochs: int = 4,
-        plot_schedule: bool = False,
+            optimizer: str,
+            initial_learning_rate: float = 0.0003,
+            decay_after_epochs: int = 10,
+            decay_rate: float = 0.7,
+            dataset_rows: int = None,
+            batch_size: int = None,
+            total_epochs: int = 4,
+            plot_schedule: bool = False,
     ):
         steps_per_epoch = dataset_rows // batch_size
         decay_steps = np.multiply(steps_per_epoch, decay_after_epochs)
@@ -198,50 +187,55 @@ class ARGUE(BaseModel):
         decoder_to_train = int(partition[10:])
         decoder_model = self.input_to_decoders.layers[decoder_to_train + 1]
         decoder_name = decoder_model.name
-        if not "decoder" in decoder_name:
+        if "decoder" not in decoder_name:
             raise Exception(
-                f'Wrong model name: "{decoder_name}" detected in decoder training! '
-                f'Should contain "decoder_<k>"'
+                f'Wrong model name: "{decoder_name}" detected in decoder training! ' f'Should contain "decoder_<k>"'
             )
         decoder_model.trainable = True
         return decoder_model.trainable_variables
 
     def build_model(
-        self,
-        encoder_hidden_layers: List[int] = [10, 8, 5],
-        decoders_hidden_layers: List[int] = [5, 8, 10],
-        alarm_hidden_layers: List[int] = [15, 12, 10],
-        gating_hidden_layers: List[int] = [15, 12, 10],
-        encoder_activation: str = "tanh",
-        decoders_activation: str = "tanh",
-        alarm_activation: str = "tanh",
-        gating_activation: str = "tanh",
-        all_activations: Optional[str] = None,
-        use_encoder_activations_in_alarm: bool = True,
-        use_latent_activations_in_encoder_activations: bool = True,
-        use_decoder_outputs_in_decoder_activations: bool = True,
-        encoder_dropout_frac: Optional[float] = None,
-        decoders_dropout_frac: Optional[float] = None,
-        alarm_dropout_frac: Optional[float] = None,
-        gating_dropout_frac: Optional[float] = None,
-        make_model_visualiations: bool = False,
+            self,
+            encoder_hidden_layers: List[int] = [10, 8, 5],
+            decoders_hidden_layers: List[int] = [5, 8, 10],
+            alarm_hidden_layers: List[int] = [15, 12, 10],
+            gating_hidden_layers: List[int] = [15, 12, 10],
+            encoder_activation: str = "tanh",
+            decoders_activation: str = "tanh",
+            alarm_activation: str = "tanh",
+            gating_activation: str = "tanh",
+            all_activations: Optional[str] = None,
+            use_encoder_activations_in_alarm: bool = True,
+            use_latent_activations_in_encoder_activations: bool = True,
+            use_decoder_outputs_in_decoder_activations: bool = True,
+            encoder_dropout_frac: Optional[float] = None,
+            decoders_dropout_frac: Optional[float] = None,
+            alarm_dropout_frac: Optional[float] = None,
+            gating_dropout_frac: Optional[float] = None,
+            make_model_visualiations: bool = False,
     ):
-        self.hyperparameters = {"input_dim": self.input_dim, "latent_dim": self.latent_dim,
-                                "encoder_layers": encoder_hidden_layers, "decoder_layers": decoders_hidden_layers,
-                                "alarm_layers": alarm_hidden_layers, "gating_layers": gating_hidden_layers,
-                                "N_decoders": self.number_of_decoders,
-                                "N_encoder_activations": self.encoder_activation_dim,
-                                "N_decoder_activations": self.decoder_activation_dim,
-                                "encoder_activation": encoder_activation,
-                                "decoder_activation": decoders_activation,
-                                "alarm_activation": alarm_activation,
-                                "gating_activation": gating_activation,
-                                "use_encoder_activations_in_alarm": use_encoder_activations_in_alarm,
-                                "use_latent_activations_in_encoder_activations": use_latent_activations_in_encoder_activations,
-                                "use_decoder_outputs_in_decoder_activations": use_decoder_outputs_in_decoder_activations,
-                                "encoder_dropout_frac": encoder_dropout_frac, "decoder_dropout_frac": decoders_dropout_frac,
-                                "alarm_dropout_frac": alarm_dropout_frac, "gating_dropout_frac": gating_dropout_frac
-                                }
+        self.hyperparameters = {
+            "input_dim": self.input_dim,
+            "latent_dim": self.latent_dim,
+            "encoder_layers": encoder_hidden_layers,
+            "decoder_layers": decoders_hidden_layers,
+            "alarm_layers": alarm_hidden_layers,
+            "gating_layers": gating_hidden_layers,
+            "N_decoders": self.number_of_decoders,
+            "N_encoder_activations": self.encoder_activation_dim,
+            "N_decoder_activations": self.decoder_activation_dim,
+            "encoder_activation": encoder_activation,
+            "decoder_activation": decoders_activation,
+            "alarm_activation": alarm_activation,
+            "gating_activation": gating_activation,
+            "use_encoder_activations_in_alarm": use_encoder_activations_in_alarm,
+            "use_latent_activations_in_encoder_activations": use_latent_activations_in_encoder_activations,
+            "use_decoder_outputs_in_decoder_activations": use_decoder_outputs_in_decoder_activations,
+            "encoder_dropout_frac": encoder_dropout_frac,
+            "decoder_dropout_frac": decoders_dropout_frac,
+            "alarm_dropout_frac": alarm_dropout_frac,
+            "gating_dropout_frac": gating_dropout_frac,
+        }
         # if all_activations is specified, the same activation function is used in all hidden layers
         if all_activations is not None:
             encoder_activation = all_activations
@@ -262,8 +256,9 @@ class ARGUE(BaseModel):
         # set constants
         self.encoder_activation_dim = self.encoder.get_activation_dim()
         self.decoder_activation_dim = int(np.sum(decoders_hidden_layers))
-        self.hyperparameters.update({"N_encoder_activations": self.encoder_activation_dim,
-                                     "N_decoder_activations": self.decoder_activation_dim})
+        self.hyperparameters.update(
+            {"N_encoder_activations": self.encoder_activation_dim, "N_decoder_activations": self.decoder_activation_dim}
+        )
         if use_decoder_outputs_in_decoder_activations:
             self.decoder_activation_dim += self.input_dim
 
@@ -305,21 +300,15 @@ class ARGUE(BaseModel):
             decoder_outputs.append(decoder_output_tensor)
             # connect encoder with alarm model through each decoder/expert network
 
-            alarm_output_tensor = self._connect_alarm_pair(
-                decoder, use_encoder_activations_in_alarm
-            ).output
+            alarm_output_tensor = self._connect_alarm_pair(decoder, use_encoder_activations_in_alarm).output
             alarm_outputs.append(alarm_output_tensor)
 
-        self.input_to_decoders = Model(
-            inputs=self.encoder.keras_model.input, outputs=decoder_outputs
-        )
+        self.input_to_decoders = Model(inputs=self.encoder.keras_model.input, outputs=decoder_outputs)
 
         self.input_to_decoders.trainable = False
         self.encoder.keras_model.trainable = True
 
-        self.input_to_alarm = Model(
-            inputs=self.encoder.keras_model.input, outputs=alarm_outputs
-        )
+        self.input_to_alarm = Model(inputs=self.encoder.keras_model.input, outputs=alarm_outputs)
         self.input_to_gating = self._connect_gating()
 
         if make_model_visualiations:
@@ -327,60 +316,41 @@ class ARGUE(BaseModel):
             # https://graphviz.gitlab.io/download/ and download and install Graphviz. It must be added to
             # PATH environment variable in order to work since keras tries to call dot.exe. So
             # Graphviz\bin\ must be on the PATH.
-            figures_path = get_figures_path()
             tf.keras.utils.plot_model(
-                self.encoder.keras_model,
-                to_file=figures_path / "encoder.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.encoder.keras_model, to_file="encoder.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
                 self.encoder.activation_model,
-                to_file=figures_path / "encoder_activations.png",
+                to_file="encoder_activations.png",
                 show_shapes=True,
                 show_layer_names=True,
             )
             tf.keras.utils.plot_model(
                 self.decoder_dict["decoder_1"].keras_model,
-                to_file=figures_path / "decoder.png",
+                to_file="decoder.png",
                 show_shapes=True,
                 show_layer_names=True,
             )
             tf.keras.utils.plot_model(
                 self.decoder_dict["decoder_1"].activation_model,
-                to_file=figures_path / "decoder_activations.png",
+                to_file="decoder_activations.png",
                 show_shapes=True,
                 show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.alarm.keras_model,
-                to_file=figures_path / "alarm.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.alarm.keras_model, to_file="alarm.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.gating.keras_model,
-                to_file=figures_path / "gating.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.gating.keras_model, to_file="gating.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.input_to_decoders,
-                to_file=figures_path / "input_to_decoders.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.input_to_decoders, to_file="input_to_decoders.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.input_to_alarm,
-                to_file=figures_path / "input_to_alarm.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.input_to_alarm, to_file="input_to_alarm.png", show_shapes=True, show_layer_names=True,
             )
             tf.keras.utils.plot_model(
-                self.input_to_gating,
-                to_file=figures_path / "input_to_gating.png",
-                show_shapes=True,
-                show_layer_names=True,
+                self.input_to_gating, to_file="input_to_gating.png", show_shapes=True, show_layer_names=True,
             )
 
         vprint(
@@ -395,68 +365,64 @@ class ARGUE(BaseModel):
         return self
 
     def fit(
-        self,
-        x: Union[DataFrame, np.ndarray],
-        partition_labels: Union[DataFrame, List[int]],
-        validation_split: float = 0.1,
-        batch_size: Optional[int] = 128,
-        autoencoder_batch_size: Optional[int] = None,
-        alarm_gating_batch_size: Optional[int] = None,
-        epochs: Optional[int] = 100,
-        autoencoder_epochs: Optional[int] = None,
-        alarm_gating_epochs: Optional[int] = None,
-        n_noise_samples: Optional[int] = None,
-        noise_stdevs_away: float = 3.0,
-        noise_stdev: float = 1.0,
-        ae_learning_rate: Union[float, List[float]] = 0.0001,
-        alarm_gating_learning_rate: float = 0.0001,
-        autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
-        alarm_decay_after_epochs: Optional[int] = None,
-        gating_decay_after_epochs: Optional[int] = None,
-        decay_rate: Optional[
-            float
-        ] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
-        optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
-        fp_penalty: float = 0,
-        fp_tolerance: float = 0.3,
-        fn_penalty: float = 0,
-        fn_tolerance: float = 0.3,
-        plot_normal_vs_noise: bool = False,
-        plot_learning_rate_decay: bool = False,
+            self,
+            x: Union[DataFrame, np.ndarray],
+            partition_labels: Union[DataFrame, List[int]],
+            validation_split: float = 0.1,
+            batch_size: Optional[int] = 128,
+            autoencoder_batch_size: Optional[int] = None,
+            alarm_gating_batch_size: Optional[int] = None,
+            epochs: Optional[int] = 100,
+            autoencoder_epochs: Optional[int] = None,
+            alarm_gating_epochs: Optional[int] = None,
+            n_noise_samples: Optional[int] = None,
+            noise_stdevs_away: float = 3.0,
+            noise_stdev: float = 1.0,
+            ae_learning_rate: Union[float, List[float]] = 0.0001,
+            alarm_gating_learning_rate: float = 0.0001,
+            autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
+            alarm_decay_after_epochs: Optional[int] = None,
+            gating_decay_after_epochs: Optional[int] = None,
+            decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
+            optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
+            fp_penalty: float = 0,
+            fp_tolerance: float = 0.3,
+            fn_penalty: float = 0,
+            fn_tolerance: float = 0.3,
+            plot_normal_vs_noise: bool = False,
+            plot_learning_rate_decay: bool = False,
     ):
         self.hyperparameters.update(
-            {"validation_split": validation_split, "autoencoder_epochs": autoencoder_epochs,
-             "alarm_epochs": alarm_gating_epochs, "autoencoder_learning_rate": ae_learning_rate,
-             "alarm_learning_rate": alarm_gating_learning_rate, "autoencoder_batch_size": autoencoder_batch_size,
-             "alarm_batch_size": alarm_gating_batch_size, "n_noise_samples": n_noise_samples,
-             "noise_stdevs_away": noise_stdevs_away, "noise_stdev": noise_stdev,
-             "autoencoder_decay_after_epochs": autoencoder_decay_after_epochs,
-             "alarm_decay_after_epochs": alarm_decay_after_epochs,
-             "gating_decay_after_epochs": gating_decay_after_epochs,
-             "decay_rate": decay_rate,
-             "fp_penalty": fp_penalty, "fp_tolerance": fp_tolerance,
-             "fn_penalty": fp_penalty, "fn_tolerance": fp_tolerance,
-             }
+            {
+                "validation_split": validation_split,
+                "autoencoder_epochs": autoencoder_epochs,
+                "alarm_epochs": alarm_gating_epochs,
+                "autoencoder_learning_rate": ae_learning_rate,
+                "alarm_learning_rate": alarm_gating_learning_rate,
+                "autoencoder_batch_size": autoencoder_batch_size,
+                "alarm_batch_size": alarm_gating_batch_size,
+                "n_noise_samples": n_noise_samples,
+                "noise_stdevs_away": noise_stdevs_away,
+                "noise_stdev": noise_stdev,
+                "autoencoder_decay_after_epochs": autoencoder_decay_after_epochs,
+                "alarm_decay_after_epochs": alarm_decay_after_epochs,
+                "gating_decay_after_epochs": gating_decay_after_epochs,
+                "decay_rate": decay_rate,
+                "fp_penalty": fp_penalty,
+                "fp_tolerance": fp_tolerance,
+                "fn_penalty": fp_penalty,
+                "fn_tolerance": fp_tolerance,
+            }
         )
-        autoencoder_epochs = (
-            epochs if autoencoder_epochs is None else autoencoder_epochs
-        )
-        alarm_gating_epochs = (
-            epochs if alarm_gating_epochs is None else alarm_gating_epochs
-        )
-        autoencoder_batch_size = (
-            batch_size if autoencoder_batch_size is None else autoencoder_batch_size
-        )
-        alarm_gating_batch_size = (
-            batch_size if alarm_gating_batch_size is None else alarm_gating_batch_size
-        )
+        autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
+        alarm_gating_epochs = epochs if alarm_gating_epochs is None else alarm_gating_epochs
+        autoencoder_batch_size = batch_size if autoencoder_batch_size is None else autoencoder_batch_size
+        alarm_gating_batch_size = batch_size if alarm_gating_batch_size is None else alarm_gating_batch_size
 
         # form initial training data making sure labels and partitions are right
         unique_partitions = np.unique(list(partition_labels))
         vprint(
-            self.verbose,
-            "Preparing data: slicing into partitions and batches...\n"
-            f"Data dimensions: {x.shape}",
+            self.verbose, "Preparing data: slicing into partitions and batches...\n" f"Data dimensions: {x.shape}",
         )
         x_copy = x.copy()
         x_copy = pd.concat([x_copy, partition_labels], axis=1)
@@ -488,9 +454,7 @@ class ARGUE(BaseModel):
         x_with_noise_and_labels = shuffle(x_with_noise_and_labels)
 
         # get one hot encodings of the partitions to use as labels for the gating network
-        gating_label_vectors = pd.get_dummies(
-            x_with_noise_and_labels["partition"]
-        ).values
+        gating_label_vectors = pd.get_dummies(x_with_noise_and_labels["partition"]).values
         x_train, x_val, gating_train_labels, gating_val_labels = train_test_split(
             x_with_noise_and_labels, gating_label_vectors, test_size=validation_split
         )
@@ -502,9 +466,7 @@ class ARGUE(BaseModel):
             (x_train.drop(columns="partition"), gating_train_labels)
         )
         alarm_gating_train_dataset = (
-            alarm_gating_train_dataset.shuffle(1024)
-            .batch(alarm_gating_batch_size, drop_remainder=True)
-            .prefetch(2)
+            alarm_gating_train_dataset.shuffle(1024).batch(alarm_gating_batch_size, drop_remainder=True).prefetch(2)
         )
         alarm_gating_val_dataset = tf.data.Dataset.from_tensor_slices(
             (x_val.drop(columns="partition"), gating_val_labels)
@@ -518,18 +480,12 @@ class ARGUE(BaseModel):
         autoencoder_val_dataset_dict = {}
         autoencoder_data_partition_sizes = []
         for partition_number, data_partition in enumerate(unique_partitions):
-            train_dataset = x_train[x_train["partition"] == data_partition].drop(
-                columns=["partition"]
-            )
-            val_dataset = x_val[x_val["partition"] == data_partition].drop(
-                columns=["partition"]
-            )
+            train_dataset = x_train[x_train["partition"] == data_partition].drop(columns=["partition"])
+            val_dataset = x_val[x_val["partition"] == data_partition].drop(columns=["partition"])
             train_dataset = shuffle(train_dataset)
             val_dataset = shuffle(val_dataset)
 
-            autoencoder_batch_size = np.min(
-                [train_dataset.shape[0], autoencoder_batch_size]
-            )
+            autoencoder_batch_size = np.min([train_dataset.shape[0], autoencoder_batch_size])
             ae_val_batch_size = np.min([val_dataset.shape[0], 1024])
 
             ae_number_of_batches = train_dataset.shape[0] // autoencoder_batch_size
@@ -538,17 +494,9 @@ class ARGUE(BaseModel):
             train_dataset = tf.data.Dataset.from_tensor_slices(train_dataset)
             val_dataset = tf.data.Dataset.from_tensor_slices(val_dataset)
 
-            train_dataset = (
-                train_dataset.shuffle(1024)
-                .batch(autoencoder_batch_size, drop_remainder=True)
-                .prefetch(2)
-            )
-            val_dataset = val_dataset.batch(
-                ae_val_batch_size, drop_remainder=True
-            ).prefetch(2)
-            autoencoder_train_dataset_dict[
-                f"partition_{data_partition}"
-            ] = train_dataset
+            train_dataset = train_dataset.shuffle(1024).batch(autoencoder_batch_size, drop_remainder=True).prefetch(2)
+            val_dataset = val_dataset.batch(ae_val_batch_size, drop_remainder=True).prefetch(2)
+            autoencoder_train_dataset_dict[f"partition_{data_partition}"] = train_dataset
             autoencoder_val_dataset_dict[f"partition_{data_partition}"] = val_dataset
 
             vprint(
@@ -564,29 +512,15 @@ class ARGUE(BaseModel):
         )
 
         # init loss and metric functions
-        (
-            ae_loss_fn,
-            alarm_loss_fn,
-            gating_loss_fn,
-            final_loss_fn,
-        ) = self._init_loss_functions()
-        (
-            ae_metric_fn,
-            alarm_metric_fn,
-            gating_metric_fn,
-            final_metric_fn,
-        ) = self._init_metric_functions()
+        (ae_loss_fn, alarm_loss_fn, gating_loss_fn, final_loss_fn,) = self._init_loss_functions()
+        (ae_metric_fn, alarm_metric_fn, gating_metric_fn, final_metric_fn,) = self._init_metric_functions()
 
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
         if autoencoder_decay_after_epochs is None:
-            ae_optimizer = self._init_optimizer(
-                optimizer=optimizer, learning_rate=ae_learning_rate
-            )
+            ae_optimizer = self._init_optimizer(optimizer=optimizer, learning_rate=ae_learning_rate)
         else:
-            ae_dataset_rows = self.number_of_decoders * np.max(
-                autoencoder_data_partition_sizes
-            )
+            ae_dataset_rows = self.number_of_decoders * np.max(autoencoder_data_partition_sizes)
             ae_optimizer = self._init_optimizer_with_lr_schedule(
                 optimizer=optimizer,
                 initial_learning_rate=ae_learning_rate,
@@ -604,12 +538,8 @@ class ARGUE(BaseModel):
             with tf.GradientTape() as tape:
                 predictions = ae_model(x_batch_train, training=True)
                 train_loss_value = ae_loss_fn(x_batch_train, predictions)
-            gradients = tape.gradient(
-                train_loss_value, encoder_network_variables + decoder_variables
-            )
-            ae_optimizer.apply_gradients(
-                zip(gradients, encoder_network_variables + decoder_variables)
-            )
+            gradients = tape.gradient(train_loss_value, encoder_network_variables + decoder_variables)
+            ae_optimizer.apply_gradients(zip(gradients, encoder_network_variables + decoder_variables))
             ae_metric_fn.update_state(x_batch_train, predictions)
             return train_loss_value
 
@@ -646,16 +576,11 @@ class ARGUE(BaseModel):
                     ae_train_loss = float(ae_train_loss)
                     epoch_train_loss.append(ae_train_loss)
                     if step % 2 == 0 and self.verbose > 2:
-                        print(
-                            f"Step {step} training loss: {ae_train_loss:.4f}, "
-                            f"MAE: {float(error_metric):.4f}"
-                        )
+                        print(f"Step {step} training loss: {ae_train_loss:.4f}, " f"MAE: {float(error_metric):.4f}")
 
                 # validation loop for the submodel
                 for x_batch_val in ae_val_dataset:
-                    ae_loss_value = self._ae_validation_step(
-                        x_batch_val, ae_model, ae_loss_fn, ae_metric_fn
-                    )
+                    ae_loss_value = self._ae_validation_step(x_batch_val, ae_model, ae_loss_fn, ae_metric_fn)
                     epoch_val_loss.append(ae_loss_value)
 
                     # NOTE: might need to be unindented
@@ -686,8 +611,7 @@ class ARGUE(BaseModel):
             vprint(self.verbose, f"--- Time elapsed: {epoch_time_elapsed:.2f} seconds")
             if autoencoder_decay_after_epochs is not None:
                 vprint(
-                    self.verbose and epoch % autoencoder_decay_after_epochs == 0,
-                    "\nReduced learning rate!\n",
+                    self.verbose and epoch % autoencoder_decay_after_epochs == 0, "\nReduced learning rate!\n",
                 )
 
         self._make_non_trainable("autoencoders")
@@ -697,12 +621,8 @@ class ARGUE(BaseModel):
 
         # init optimizers
         if alarm_decay_after_epochs is None:
-            alarm_optimizer = self._init_optimizer(
-                optimizer=optimizer, learning_rate=alarm_gating_learning_rate
-            )
-            final_optimizer = self._init_optimizer(
-                optimizer=optimizer, learning_rate=alarm_gating_learning_rate
-            )
+            alarm_optimizer = self._init_optimizer(optimizer=optimizer, learning_rate=alarm_gating_learning_rate)
+            final_optimizer = self._init_optimizer(optimizer=optimizer, learning_rate=alarm_gating_learning_rate)
         else:
             alarm_optimizer = self._init_optimizer_with_lr_schedule(
                 optimizer=optimizer,
@@ -725,9 +645,7 @@ class ARGUE(BaseModel):
                 plot_schedule=False,
             )
         if gating_decay_after_epochs is None:
-            gating_optimizer = self._init_optimizer(
-                optimizer=optimizer, learning_rate=alarm_gating_learning_rate
-            )
+            gating_optimizer = self._init_optimizer(optimizer=optimizer, learning_rate=alarm_gating_learning_rate)
         else:
             gating_optimizer = self._init_optimizer_with_lr_schedule(
                 optimizer=optimizer,
@@ -753,9 +671,7 @@ class ARGUE(BaseModel):
 
             # update alarm model
             with tf.GradientTape() as tape:
-                predicted_alarm = tf.keras.layers.concatenate(
-                    alarm_model(x_batch_train, training=True)
-                )
+                predicted_alarm = tf.keras.layers.concatenate(alarm_model(x_batch_train, training=True))
                 alarm_loss_value = alarm_loss_fn(true_alarm, predicted_alarm)
             gradients = tape.gradient(alarm_loss_value, alarm_network_variables)
             alarm_optimizer.apply_gradients(zip(gradients, alarm_network_variables))
@@ -775,41 +691,25 @@ class ARGUE(BaseModel):
                     [tf.ones((predicted_alarm.shape[0], 1)), predicted_alarm]
                 )
                 predicted_gating = gating_model(x_batch_train, training=True)
-                predicted_product = tf.keras.layers.multiply(
-                    [predicted_gating, predicted_alarm_and_ones]
-                )
-                predicted_final = tf.keras.layers.Lambda(
-                    lambda x: tf.reduce_sum(x, axis=1)
-                )(predicted_product)
+                predicted_product = tf.keras.layers.multiply([predicted_gating, predicted_alarm_and_ones])
+                predicted_final = tf.keras.layers.Lambda(lambda x: tf.reduce_sum(x, axis=1))(predicted_product)
 
                 # control false positve penalty using max(0, p-y) = relu(p-y) as regularizing term.
                 # will only be positive for true_final = 0, and 0 if it's 1
-                fp_term = tf.keras.activations.relu(
-                    predicted_final - true_final - fp_tolerance
-                )
-                false_positive_loss = tf.keras.layers.Lambda(
-                    lambda x: tf.reduce_mean(x)
-                )(fp_term)
+                fp_term = tf.keras.activations.relu(predicted_final - true_final - fp_tolerance)
+                false_positive_loss = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x))(fp_term)
                 # will only be positive for true_final = 1, and 0 if it's 1
                 # the tolerance is the acceptable prediction error before the penalty is applied,
                 # e.g. if true_final = 1, predicted_final = 0.7 and fn_tolerance is 0.4, no penalty is applied
-                fn_term = tf.keras.activations.relu(
-                    true_final - predicted_final - fn_tolerance
-                )
-                false_negative_loss = tf.keras.layers.Lambda(
-                    lambda x: tf.reduce_mean(x)
-                )(fn_term)
+                fn_term = tf.keras.activations.relu(true_final - predicted_final - fn_tolerance)
+                false_negative_loss = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x))(fn_term)
                 final_loss_value = (
-                    final_loss_fn(true_final, predicted_final)
-                    + fp_penalty * false_positive_loss
-                    + fn_penalty * false_negative_loss
+                        final_loss_fn(true_final, predicted_final)
+                        + fp_penalty * false_positive_loss
+                        + fn_penalty * false_negative_loss
                 )
-            gradients = tape.gradient(
-                final_loss_value, alarm_network_variables + gating_network_variables
-            )
-            final_optimizer.apply_gradients(
-                zip(gradients, alarm_network_variables + gating_network_variables)
-            )
+            gradients = tape.gradient(final_loss_value, alarm_network_variables + gating_network_variables)
+            final_optimizer.apply_gradients(zip(gradients, alarm_network_variables + gating_network_variables))
 
             alarm_metric_fn.update_state(true_alarm, predicted_alarm)
             gating_metric_fn.update_state(true_gating, predicted_gating)
@@ -837,14 +737,10 @@ class ARGUE(BaseModel):
             final_epoch_val_metric = []
 
             # weight update loop
-            for step, (x_batch_train, true_gating) in enumerate(
-                alarm_gating_train_dataset
-            ):
-                (
-                    alarm_loss_value,
-                    gating_loss_value,
-                    final_loss_value,
-                ) = _alarm_gating_train_step(x_batch_train, true_gating)
+            for step, (x_batch_train, true_gating) in enumerate(alarm_gating_train_dataset):
+                (alarm_loss_value, gating_loss_value, final_loss_value,) = _alarm_gating_train_step(
+                    x_batch_train, true_gating
+                )
                 alarm_epoch_train_loss.append(alarm_loss_value)
                 gating_epoch_train_loss.append(gating_loss_value)
                 final_epoch_train_loss.append(final_loss_value)
@@ -894,9 +790,7 @@ class ARGUE(BaseModel):
                 alarm_epoch_val_metric.append(alarm_metric_fn.result())
                 gating_epoch_val_metric.append(gating_metric_fn.result())
                 final_epoch_val_metric.append(final_metric_fn.result())
-                alarm_epoch_sparsity.append(
-                    check_alarm_sparsity(true_alarm, predicted_alarm)
-                )
+                alarm_epoch_sparsity.append(check_alarm_sparsity(true_alarm, predicted_alarm))
                 alarm_metric_fn.reset_states()
                 gating_metric_fn.reset_states()
                 final_metric_fn.reset_states()
@@ -945,9 +839,7 @@ class ARGUE(BaseModel):
         return predictions
 
     def predict_gating_weights(self, x):
-        return self.input_to_gating.predict(
-            x
-        )  # .reshape((-1, self.number_of_decoders + 1))
+        return self.input_to_gating.predict(x)  # .reshape((-1, self.number_of_decoders + 1))
 
     def predict_alarm_probabilities(self, x: DataFrame):
         alarm_vector = self.input_to_alarm.predict(x)
@@ -955,20 +847,18 @@ class ARGUE(BaseModel):
         return alarm_vector
 
     def predict_plot_anomalies(
-        self,
-        x,
-        true_partitions: Optional[List[int]] = None,
-        window_length: Optional[Union[int, List[int]]] = None,
-        **kwargs,
+            self,
+            x,
+            true_partitions: Optional[List[int]] = None,
+            window_length: Optional[Union[int, List[int]]] = None,
+            **kwargs,
     ):
         df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
         if x.index is not None:
             df_preds.index = x.index
 
         if window_length is not None:
-            window_length = (
-                [window_length] if type(window_length) != list else window_length
-            )
+            window_length = [window_length] if type(window_length) != list else window_length
             fig, ax = plt.subplots(1, 1)
             ax.plot(df_preds, label="Anomaly probability", alpha=0.6)
             ax.xaxis.set_major_locator(ticker.LinearLocator(numticks=8))
@@ -1008,14 +898,10 @@ class ARGUE(BaseModel):
         row_number = np.arange(best_decoder.shape[0])
         reconstructions = np.stack(self.input_to_decoders.predict(x), axis=0)
         final_reconstructions = reconstructions[best_decoder, row_number, :]
-        final_reconstructions = pd.DataFrame(
-            final_reconstructions, columns=x.columns, index=x.index
-        )
+        final_reconstructions = pd.DataFrame(final_reconstructions, columns=x.columns, index=x.index)
         return final_reconstructions
 
-    def predict_plot_reconstructions(
-        self, x: DataFrame, cols_to_plot: Optional[List[str]] = None, **kwargs
-    ):
+    def predict_plot_reconstructions(self, x: DataFrame, cols_to_plot: Optional[List[str]] = None, **kwargs):
         df_predictions = self.predict_reconstructions(x)
         col_names = x.columns
         col_names_pred = col_names + "_pred"
@@ -1030,7 +916,7 @@ class ARGUE(BaseModel):
         df_all = df_all[swapped_col_order]
         if cols_to_plot is None:
             N_cols_to_plot = len(col_names) if len(col_names) <= 6 else 6
-            cols_to_plot = df_all.columns.values[0 : 2 * N_cols_to_plot]
+            cols_to_plot = df_all.columns.values[0: 2 * N_cols_to_plot]
 
         df_plots = df_all[cols_to_plot]
 
@@ -1038,22 +924,16 @@ class ARGUE(BaseModel):
         if graphs_in_same_plot:
             num_plots = int(df_plots.shape[1] / 2)
             fig, axes = plt.subplots(num_plots, 1, sharex=True)
-            for axis, col in zip(
-                np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)
-            ):
-                df_to_plot = df_plots.iloc[:, col : col + 2]
+            for axis, col in zip(np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)):
+                df_to_plot = df_plots.iloc[:, col: col + 2]
                 df_to_plot.columns = ["Actual", "Predicted"]
                 df_to_plot.index = pd.to_datetime(df_to_plot.index)
-                df_to_plot.index = df_to_plot.index.map(
-                    lambda t: t.strftime("%d-%m-%Y")
-                )
+                df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
                 df_to_plot.plot(ax=axes[axis], rot=15, legend=False)
                 axes[axis].set_title(df_plots.columns[col], size=10)
                 axes[axis].get_xaxis().get_label().set_visible(False)
             box = axes[axis].get_position()
-            axes[axis].set_position(
-                [box.x0, box.y0 + box.height * 0.1, box.width, box.height * 0.9]
-            )
+            axes[axis].set_position([box.x0, box.y0 + box.height * 0.1, box.width, box.height * 0.9])
             plt.legend(
                 bbox_to_anchor=(0.7, -0.01),
                 loc="lower right",
@@ -1070,69 +950,3 @@ class ARGUE(BaseModel):
                 cols_to_plot.append(key)
             fig = df_all[cols_to_plot].plot(subplots=True)
         return fig
-
-    # def save(self, path: Union[Path, str] = None, model_name: str = None):
-    #     def _save_models_in_dict(model_dict: Dict):
-    #         for name, model in model_dict.items():
-    #             model.save(path / name)
-    #
-    #     vprint(self.verbose, "\nSaving model...\n")
-    #     model_name = model_name if model_name else "argue"
-    #     path = get_serialized_models_path() / model_name if not path else path
-    #
-    #     # iterate over all the different item types in the self dictionary to be saved
-    #     non_model_attributes_dict = {}
-    #     with tqdm(total=len(vars(self))) as pbar:
-    #         for name, attribute in vars(self).items():
-    #             if isinstance(attribute, Network):
-    #                 attribute.save(path / attribute.name)
-    #             elif isinstance(attribute, dict):
-    #                 _save_models_in_dict(attribute)
-    #             elif isinstance(attribute, Functional):
-    #                 attribute.save(path / name)
-    #             else:
-    #                 non_model_attributes_dict[name] = attribute
-    #             pbar.update(1)
-    #
-    #     with open(path / "non_model_attributes.pkl", "wb") as file:
-    #         pickle.dump(non_model_attributes_dict, file)
-    #
-    #     vprint(self.verbose, f"... Model saved succesfully in {path}")
-    #
-    # def load(self, path: Union[Path, str] = None, model_name: str = None):
-    #     print("\nLoading model...\n")
-    #     model_name = model_name if model_name else "argue"
-    #     path = get_serialized_models_path() / model_name if not path else path
-    #
-    #     # finally, load the dictionary storing the builtin/simple types, e.g. ints
-    #     with open(path / "non_model_attributes.pkl", "rb") as file:
-    #         non_model_attributes_dict = pickle.load(file)
-    #     for name, attribute in non_model_attributes_dict.items():
-    #         vars(self)[name] = attribute
-    #
-    #     # an untrained model needs to be built before we can start loading it
-    #     self.verbose = False
-    #     self.build_model()
-    #
-    #     # iterate over all the different item types to be loaded into the untrained model
-    #     with tqdm(total=len(vars(self))) as pbar:
-    #         for name, attribute in vars(self).items():
-    #             if isinstance(attribute, Network):
-    #                 attribute.load(path / name)
-    #             elif isinstance(attribute, Functional):
-    #                 vars(self)[name] = tf.keras.models.load_model(
-    #                     path / name, compile=False
-    #                 )
-    #             elif isinstance(attribute, dict):
-    #                 for item_name, item_in_dict in attribute.items():
-    #                     if isinstance(item_in_dict, Network):
-    #                         item_in_dict.load(path / item_in_dict.name)
-    #                     elif isinstance(item_in_dict, Functional):
-    #                         vars(self)[name][item_name] = tf.keras.models.load_model(
-    #                             path / item_name, compile=False
-    #                         )
-    #             pbar.update(1)
-    #
-    #     print("... Model loaded and ready!")
-    #
-    #     return self
