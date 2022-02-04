@@ -2,12 +2,13 @@
 Misc utilities, helper functions etc
 """
 
-from typing import List, Union, Optional
+import random
+from typing import List, Optional, Union
 
 import matplotlib.pyplot as plt
-import plotly.express as px
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import tensorflow as tf
 from pandas import DataFrame
 from sklearn.cluster import KMeans
@@ -16,6 +17,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 def set_seed(seed: int = 1234):
+    random.seed(seed)
     tf.random.set_seed(seed)
     np.random.seed(seed)
 
@@ -27,7 +29,7 @@ def vprint(verbose: Union[bool, int], str_to_print: str, **kwargs):
 
 def partition_by_quantiles(x, column: str, quantiles: List[float] = None):
     if quantiles is None:
-        quantiles = [0, 0.25, 0.5, 0.75, 1.]
+        quantiles = [0, 0.25, 0.5, 0.75, 1.0]
     bins = pd.qcut(x[column], quantiles, labels=False)
     x_out = x.copy()
     x_out["partition"] = bins + 1  # add one since the partitions to ARGUE must start in 1
@@ -56,40 +58,32 @@ def plot_candidate_partitions_by_pca(x_transformed, pca):
     # x_transformed = pca.transform(x)
     components = x_transformed
     labels = {str(i): f"PC {i + 1} ({var:.1f}%)" for i, var in enumerate(pca.explained_variance_ratio_ * 100)}
-    dimensions = range(np.min([5, x_transformed.shape[1]])) # get available PC's up to a max of 5
+    dimensions = range(np.min([5, x_transformed.shape[1]]))  # get available PC's up to a max of 5
 
-    fig = px.scatter_matrix(
-        components,
-        labels=labels,
-        dimensions=dimensions,
-    )
+    fig = px.scatter_matrix(components, labels=labels, dimensions=dimensions,)
     fig.update_traces(diagonal_visible=False)
     fig.show()
     return x_transformed
 
 
-def select_pcs_and_partition_data(x_transformed, pcs_to_cluster_on: List[int], n_clusters: int,
-                                  plot_pca_clustering: bool = True):
+def select_pcs_and_partition_data(
+    x_transformed, pcs_to_cluster_on: List[int], n_clusters: int, plot_pca_clustering: bool = True
+):
     """
     This function relies on the visual conclusions from plot_candidate_partitions_by_pca.
     The particular PC's to cluster on can be selected as well as the desired number of clusters/partitions to obtain
     """
 
     assert 0 not in pcs_to_cluster_on, "PC's must be given by indices starting from 1"
-    pcs_to_cluster_on = [i-1 for i in pcs_to_cluster_on]  # convert to actual array indices
+    pcs_to_cluster_on = [i - 1 for i in pcs_to_cluster_on]  # convert to actual array indices
     clusters = KMeans(n_clusters=n_clusters, n_init=50).fit(x_transformed[:, pcs_to_cluster_on])
     partition_labels = clusters.labels_ + 1
     if plot_pca_clustering:
         components = x_transformed
-        dimensions = range(np.min([5, x_transformed.shape[1]])) # get available PC's up to a max of 5
+        dimensions = range(np.min([5, x_transformed.shape[1]]))  # get available PC's up to a max of 5
         labels = {str(i): f"PC {i+1}" for i in dimensions}
 
-        fig = px.scatter_matrix(
-            components,
-            labels=labels,
-            dimensions=dimensions,
-            color=partition_labels
-        )
+        fig = px.scatter_matrix(components, labels=labels, dimensions=dimensions, color=partition_labels)
         fig.update_traces(diagonal_visible=False)
         fig.show()
     return partition_labels
@@ -130,23 +124,31 @@ def check_alarm_sparsity(y_true, y_pred):
 
 
 # note: authors' original noise generator
-def generate_noise_samples(x: DataFrame, quantiles: Optional[List[float]] = None,
-                           n_noise_samples: Optional[int] = None,
-                           stdev: float = 1, stdevs_away: float = 3):
+def generate_noise_samples(
+    x: DataFrame,
+    quantiles: Optional[List[float]] = None,
+    n_noise_samples: Optional[int] = None,
+    stdev: float = 1,
+    stdevs_away: float = 3,
+):
     input_dim = pd.DataFrame(x).shape[1]
     # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
     if n_noise_samples == 0:
         return pd.DataFrame(np.random.normal(size=(1, input_dim)), columns=x.columns)
     N = x.shape[0] if n_noise_samples is None else n_noise_samples
     noise = np.random.normal(0.5, 1, size=(N, input_dim))
-    df_noise = pd.DataFrame((noise), columns=x.columns)
+    df_noise = pd.DataFrame(noise, columns=x.columns)
     return df_noise
 
 
 # note: my modified noise generator
-def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = None,
-                            n_noise_samples: Optional[int] = None,
-                            stdev: float = 1, stdevs_away: float = 3):
+def generate_noise_samples2(
+    x: DataFrame,
+    quantiles: Optional[List[float]] = None,
+    n_noise_samples: Optional[int] = None,
+    stdev: float = 1,
+    stdevs_away: float = 3,
+):
     input_dim = pd.DataFrame(x).shape[1]
 
     # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
@@ -163,8 +165,7 @@ def generate_noise_samples2(x: DataFrame, quantiles: Optional[List[float]] = Non
 
 
 # note: another modified noise generator
-def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
-                            **kwargs):
+def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None, **kwargs):
     input_dim = pd.DataFrame(x).shape[1]
     n_noise_samples = x.shape[0] // 2 if n_noise_samples is None else n_noise_samples // 2
 
@@ -182,12 +183,14 @@ def generate_noise_samples3(x: DataFrame, n_noise_samples: Optional[int] = None,
     return df_noise
 
 
-def plot_learning_schedule(total_steps: int = None,
-                           initial_learning_rate: float = None,
-                           decay_rate: float = None,
-                           decay_steps: int = None,
-                           staircase: bool = False,
-                           verbose: bool = False):
+def plot_learning_schedule(
+    total_steps: int = None,
+    initial_learning_rate: float = None,
+    decay_rate: float = None,
+    decay_steps: int = None,
+    staircase: bool = False,
+    verbose: bool = False,
+):
     def decayed_learning_rate(step):
         exponent = (step // decay_steps) if staircase else (step / decay_steps)
         return np.power(initial_learning_rate * decay_rate, exponent)
@@ -209,5 +212,6 @@ def plot_learning_schedule(total_steps: int = None,
 
 
 def make_time_elapsed_string(elapsed_time, secs_to_min_threshold: int = 180):
-    return f"{elapsed_time:.2f} seconds!" if elapsed_time < secs_to_min_threshold else \
-        f"{elapsed_time / 60:.2f} minutes!"
+    return (
+        f"{elapsed_time:.2f} seconds!" if elapsed_time < secs_to_min_threshold else f"{elapsed_time / 60:.2f} minutes!"
+    )

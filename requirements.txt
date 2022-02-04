@@ -1,37 +1,8 @@
-# Data analysis, scientific computing and visualization
-# ------------------------------------------------------------------------------
+matplotlib
 numpy
 pandas
-scikit-learn
-seaborn
-matplotlib
-scipy
-tensorflow
+plotly
+pytest
+scikit_learn
+tensorflow-cpu==2.7.0
 tqdm
-# Databases
-# ------------------------------------------------------------------------------
-# Automation
-# ------------------------------------------------------------------------------
-# Testing
-# ------------------------------------------------------------------------------
-pytest  # https://github.com/pytest-dev/pytest
-# pytest-sugar  # https://github.com/Frozenball/pytest-sugar
-# pytest-mock # https://github.com/pytest-dev/pytest-mock/
-# pytest-cov # https://pypi.org/project/pytest-cov/
-# hypothesis
-# Code quality
-# ------------------------------------------------------------------------------
-# isort # Sort import statements. We need 4.3.15 to correctly sort dataclasses
-# pylint # Linter.
-black # Auto formatter.
-# autoflake # Automatically removes unused imports and unused variables. See https://github.com/myint/autoflake
-# coverage  # https://github.com/nedbat/coveragepy
-# mypy  # https://github.com/python/mypy
-# bandit # Bandit is a tool designed to find common security issues in Python code. See https://pypi.org/project/bandit/
-
-# Documentation
-# ------------------------------------------------------------------------------
-
-
-timesynth
-setuptools
