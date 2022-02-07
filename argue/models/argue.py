@@ -22,12 +22,12 @@ plt.style.use("seaborn")
 
 class ARGUE(BaseModel):
     def __init__(
-            self,
-            input_dim: int = 3,
-            number_of_decoders: int = 2,
-            latent_dim: int = 2,
-            verbose: int = 1,
-            model_name: str = "",
+        self,
+        input_dim: int = 3,
+        number_of_decoders: int = 2,
+        latent_dim: int = 2,
+        verbose: int = 1,
+        model_name: str = "",
     ):
         self.input_dim = input_dim
         self.number_of_decoders = number_of_decoders
@@ -102,8 +102,7 @@ class ARGUE(BaseModel):
 
     @tf.function
     def _alarm_gating_validation_step(
-            self, x_batch_val, true_gating, alarm_loss, gating_loss, final_loss, alarm_metric, gating_metric,
-            final_metric,
+        self, x_batch_val, true_gating, alarm_loss, gating_loss, final_loss, alarm_metric, gating_metric, final_metric,
     ):
         true_alarm = 1 - true_gating[:, 1:]
         true_final = tf.reduce_min(true_alarm, axis=1)
@@ -151,14 +150,14 @@ class ARGUE(BaseModel):
 
     @staticmethod
     def _init_optimizer_with_lr_schedule(
-            optimizer: str,
-            initial_learning_rate: float = 0.0003,
-            decay_after_epochs: int = 10,
-            decay_rate: float = 0.7,
-            dataset_rows: int = None,
-            batch_size: int = None,
-            total_epochs: int = 4,
-            plot_schedule: bool = False,
+        optimizer: str,
+        initial_learning_rate: float = 0.0003,
+        decay_after_epochs: int = 10,
+        decay_rate: float = 0.7,
+        dataset_rows: int = None,
+        batch_size: int = None,
+        total_epochs: int = 4,
+        plot_schedule: bool = False,
     ):
         steps_per_epoch = dataset_rows // batch_size
         decay_steps = np.multiply(steps_per_epoch, decay_after_epochs)
@@ -195,24 +194,24 @@ class ARGUE(BaseModel):
         return decoder_model.trainable_variables
 
     def build_model(
-            self,
-            encoder_hidden_layers: List[int] = [10, 8, 5],
-            decoders_hidden_layers: List[int] = [5, 8, 10],
-            alarm_hidden_layers: List[int] = [15, 12, 10],
-            gating_hidden_layers: List[int] = [15, 12, 10],
-            encoder_activation: str = "tanh",
-            decoders_activation: str = "tanh",
-            alarm_activation: str = "tanh",
-            gating_activation: str = "tanh",
-            all_activations: Optional[str] = None,
-            use_encoder_activations_in_alarm: bool = True,
-            use_latent_activations_in_encoder_activations: bool = True,
-            use_decoder_outputs_in_decoder_activations: bool = True,
-            encoder_dropout_frac: Optional[float] = None,
-            decoders_dropout_frac: Optional[float] = None,
-            alarm_dropout_frac: Optional[float] = None,
-            gating_dropout_frac: Optional[float] = None,
-            make_model_visualiations: bool = False,
+        self,
+        encoder_hidden_layers: List[int] = [10, 8, 5],
+        decoders_hidden_layers: List[int] = [5, 8, 10],
+        alarm_hidden_layers: List[int] = [15, 12, 10],
+        gating_hidden_layers: List[int] = [15, 12, 10],
+        encoder_activation: str = "tanh",
+        decoders_activation: str = "tanh",
+        alarm_activation: str = "tanh",
+        gating_activation: str = "tanh",
+        all_activations: Optional[str] = None,
+        use_encoder_activations_in_alarm: bool = True,
+        use_latent_activations_in_encoder_activations: bool = True,
+        use_decoder_outputs_in_decoder_activations: bool = True,
+        encoder_dropout_frac: Optional[float] = None,
+        decoders_dropout_frac: Optional[float] = None,
+        alarm_dropout_frac: Optional[float] = None,
+        gating_dropout_frac: Optional[float] = None,
+        make_model_visualiations: bool = False,
     ):
         self.hyperparameters = {
             "input_dim": self.input_dim,
@@ -365,32 +364,32 @@ class ARGUE(BaseModel):
         return self
 
     def fit(
-            self,
-            x: Union[DataFrame, np.ndarray],
-            partition_labels: Union[DataFrame, List[int]],
-            validation_split: float = 0.1,
-            batch_size: Optional[int] = 128,
-            autoencoder_batch_size: Optional[int] = None,
-            alarm_gating_batch_size: Optional[int] = None,
-            epochs: Optional[int] = 100,
-            autoencoder_epochs: Optional[int] = None,
-            alarm_gating_epochs: Optional[int] = None,
-            n_noise_samples: Optional[int] = None,
-            noise_stdevs_away: float = 3.0,
-            noise_stdev: float = 1.0,
-            ae_learning_rate: Union[float, List[float]] = 0.0001,
-            alarm_gating_learning_rate: float = 0.0001,
-            autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
-            alarm_decay_after_epochs: Optional[int] = None,
-            gating_decay_after_epochs: Optional[int] = None,
-            decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
-            optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
-            fp_penalty: float = 0,
-            fp_tolerance: float = 0.3,
-            fn_penalty: float = 0,
-            fn_tolerance: float = 0.3,
-            plot_normal_vs_noise: bool = False,
-            plot_learning_rate_decay: bool = False,
+        self,
+        x: Union[DataFrame, np.ndarray],
+        partition_labels: Union[DataFrame, List[int]],
+        validation_split: float = 0.1,
+        batch_size: Optional[int] = 128,
+        autoencoder_batch_size: Optional[int] = None,
+        alarm_gating_batch_size: Optional[int] = None,
+        epochs: Optional[int] = 100,
+        autoencoder_epochs: Optional[int] = None,
+        alarm_gating_epochs: Optional[int] = None,
+        n_noise_samples: Optional[int] = None,
+        noise_stdevs_away: float = 3.0,
+        noise_stdev: float = 1.0,
+        ae_learning_rate: Union[float, List[float]] = 0.0001,
+        alarm_gating_learning_rate: float = 0.0001,
+        autoencoder_decay_after_epochs: Optional[Union[int, List[int]]] = None,
+        alarm_decay_after_epochs: Optional[int] = None,
+        gating_decay_after_epochs: Optional[int] = None,
+        decay_rate: Optional[float] = 0.7,  # 0.1 = heavy reduction, 0.9 = slight reduction
+        optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
+        fp_penalty: float = 0,
+        fp_tolerance: float = 0.3,
+        fn_penalty: float = 0,
+        fn_tolerance: float = 0.3,
+        plot_normal_vs_noise: bool = False,
+        plot_learning_rate_decay: bool = False,
     ):
         self.hyperparameters.update(
             {
@@ -704,9 +703,9 @@ class ARGUE(BaseModel):
                 fn_term = tf.keras.activations.relu(true_final - predicted_final - fn_tolerance)
                 false_negative_loss = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x))(fn_term)
                 final_loss_value = (
-                        final_loss_fn(true_final, predicted_final)
-                        + fp_penalty * false_positive_loss
-                        + fn_penalty * false_negative_loss
+                    final_loss_fn(true_final, predicted_final)
+                    + fp_penalty * false_positive_loss
+                    + fn_penalty * false_negative_loss
                 )
             gradients = tape.gradient(final_loss_value, alarm_network_variables + gating_network_variables)
             final_optimizer.apply_gradients(zip(gradients, alarm_network_variables + gating_network_variables))
@@ -847,11 +846,11 @@ class ARGUE(BaseModel):
         return alarm_vector
 
     def predict_plot_anomalies(
-            self,
-            x,
-            true_partitions: Optional[List[int]] = None,
-            window_length: Optional[Union[int, List[int]]] = None,
-            **kwargs,
+        self,
+        x,
+        true_partitions: Optional[List[int]] = None,
+        window_length: Optional[Union[int, List[int]]] = None,
+        **kwargs,
     ):
         df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
         if x.index is not None:
@@ -916,7 +915,7 @@ class ARGUE(BaseModel):
         df_all = df_all[swapped_col_order]
         if cols_to_plot is None:
             N_cols_to_plot = len(col_names) if len(col_names) <= 6 else 6
-            cols_to_plot = df_all.columns.values[0: 2 * N_cols_to_plot]
+            cols_to_plot = df_all.columns.values[0 : 2 * N_cols_to_plot]
 
         df_plots = df_all[cols_to_plot]
 
@@ -925,7 +924,7 @@ class ARGUE(BaseModel):
             num_plots = int(df_plots.shape[1] / 2)
             fig, axes = plt.subplots(num_plots, 1, sharex=True)
             for axis, col in zip(np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)):
-                df_to_plot = df_plots.iloc[:, col: col + 2]
+                df_to_plot = df_plots.iloc[:, col : col + 2]
                 df_to_plot.columns = ["Actual", "Predicted"]
                 df_to_plot.index = pd.to_datetime(df_to_plot.index)
                 df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
