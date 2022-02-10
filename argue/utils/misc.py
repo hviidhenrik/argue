@@ -125,18 +125,14 @@ def check_alarm_sparsity(y_true, y_pred):
 
 # note: authors' original noise generator
 def generate_noise_samples(
-    x: DataFrame,
-    quantiles: Optional[List[float]] = None,
-    n_noise_samples: Optional[int] = None,
-    stdev: float = 1,
-    stdevs_away: float = 3,
+    x: DataFrame, n_noise_samples: Optional[int] = None, mean: float = 0.5, stdev: float = 1,
 ):
     input_dim = pd.DataFrame(x).shape[1]
     # if no noise samples desired, make a df with a single row to keep dimensions intact further on in ARGUE
     if n_noise_samples == 0:
         return pd.DataFrame(np.random.normal(size=(1, input_dim)), columns=x.columns)
     N = x.shape[0] if n_noise_samples is None else n_noise_samples
-    noise = np.random.normal(0.5, 1, size=(N, input_dim))
+    noise = np.random.normal(mean, stdev, size=(N, input_dim))
     df_noise = pd.DataFrame(noise, columns=x.columns)
     return df_noise
 

@@ -6,18 +6,24 @@ import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import wandb
 from pandas import DataFrame
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
+from wandb.keras import WandbCallback
 
 from argue.models.base_model import BaseModel
 from argue.utils.misc import generate_noise_samples, make_time_elapsed_string, vprint
 from argue.utils.model import Network
 
 plt.style.use("seaborn")
+
+
+# TODO
+# - make wandb for ARGUELite and baseline autoencoder
 
 
 class ARGUELite(BaseModel):
@@ -45,6 +51,10 @@ class ARGUELite(BaseModel):
         self.input_to_activations = None
         self.history = None
         self.verbose = verbose
+        self.ae_train_loss = None
+        self.ae_val_loss = None
+        self.alarm_train_loss = None
+        self.alarm_val_loss = None
         super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
@@ -90,11 +100,7 @@ class ARGUELite(BaseModel):
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
         # TODO revise noise distribution or do it at runtime/training time instead (on the fly)
         x_noise = generate_noise_samples(
-            x_copy.drop(columns=["partition"]),
-            quantiles=[0.005, 0.995],
-            stdev=noise_stdev,
-            stdevs_away=noise_stdevs_away,
-            n_noise_samples=n_noise_samples,
+            x_copy.drop(columns=["partition"]), mean=0.5, stdev=noise_stdev, n_noise_samples=n_noise_samples,
         )
         if plot_normal_vs_noise:
             pca = PCA(2).fit(x_copy.drop(columns=["partition"]))
@@ -142,6 +148,7 @@ class ARGUELite(BaseModel):
     ):
 
         self.hyperparameters = {
+            "model_name": "ARGUELite",
             "input_dim": self.input_dim,
             "latent_dim": self.latent_dim,
             "encoder_layers": encoder_hidden_layers,
@@ -306,6 +313,7 @@ class ARGUELite(BaseModel):
         reduce_lr_by_factor: float = 0.5,
         reduce_lr_patience: int = 10,
         noise_factor: float = 0.0,
+        log_with_wandb: bool = False,
     ):
         self.hyperparameters.update(
             {
@@ -387,6 +395,12 @@ class ARGUELite(BaseModel):
             callbacks=callbacks,
         )
         autoencoder_model.trainable = False
+
+        # TODO need to find a way to include autoencoder and alarm metrics in the same wandb run...
+        # n0te: for now, though, only the alarm network is logged
+        if log_with_wandb:
+            wandb.init(config=self.hyperparameters)
+            callbacks.append(WandbCallback())
 
         # make alarm dataset from fully trained autoencoder activations
         alarm_train_dataset = self.input_to_activations.predict(x_train.drop(columns=["partition"]))

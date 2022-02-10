@@ -44,8 +44,8 @@ if __name__ == "__main__":
             x_train.drop(columns=["partition"]),
             x_train["partition"],
             epochs=None,
-            autoencoder_epochs=10,
-            alarm_gating_epochs=10,
+            autoencoder_epochs=4,
+            alarm_gating_epochs=4,
             batch_size=None,
             autoencoder_batch_size=1,
             alarm_gating_batch_size=1,
@@ -60,8 +60,12 @@ if __name__ == "__main__":
             fn_penalty=0,
             validation_split=1 / 5,
             n_noise_samples=None,
+            log_with_wandb=True,
         )
         # model.save()
+
+    foo = model.ae_train_loss
+    foo = model.alarm_val_loss
 
     anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22], "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
 

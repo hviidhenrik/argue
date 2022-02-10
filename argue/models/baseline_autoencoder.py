@@ -6,10 +6,12 @@ import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import wandb
 from pandas import DataFrame
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
+from wandb.keras import WandbCallback
 
 from argue.models.base_model import BaseModel
 from argue.utils.misc import make_time_elapsed_string, vprint
@@ -76,6 +78,7 @@ class BaselineAutoencoder(BaseModel):
         autoencoder_l2: Optional[float] = None,
     ):
         self.hyperparameters = {
+            "model_name": "Autoencoder",
             "input_dim": self.input_dim,
             "latent_dim": self.latent_dim,
             "encoder_layers": encoder_hidden_layers,
@@ -138,7 +141,7 @@ class BaselineAutoencoder(BaseModel):
 
         vprint(
             self.verbose,
-            f"\nARGUE networks built succesfully - properties: \n"
+            f"\nAutoencoder network built succesfully - properties: \n"
             f"  > Input dimension: {self.input_dim}\n"
             f"  > Encoder hidden layers: {encoder_hidden_layers}\n"
             f"  > Decoder hidden layers: {decoders_hidden_layers}\n"
@@ -160,6 +163,7 @@ class BaselineAutoencoder(BaseModel):
         reduce_lr_by_factor: float = 0.5,
         reduce_lr_patience: int = 10,
         noise_factor: float = 0.0,
+        log_with_wandb: bool = False,
     ):
         self.hyperparameters.update(
             {
@@ -174,8 +178,11 @@ class BaselineAutoencoder(BaseModel):
                 "reduce_lr_patience": reduce_lr_patience,
             }
         )
-        start = time.time()
 
+        if log_with_wandb:
+            wandb.init(config=self.hyperparameters)
+
+        start = time.time()
         # form initial training data making sure labels and partitions are right
         vprint(
             self.verbose, "Preparing data: slicing into partitions and batches...\n" f"Data dimensions: {x.shape}",
@@ -199,6 +206,8 @@ class BaselineAutoencoder(BaseModel):
                     monitor="val_loss", factor=reduce_lr_by_factor, patience=reduce_lr_patience, verbose=1, mode="min",
                 )
             )
+        if log_with_wandb:
+            callbacks.append(WandbCallback())
 
         # in case we want a denoising autoencoder (noise_factor > 0) - if not data will remain unchanged
         autoencoder_train_dataset_noisy = autoencoder_train_dataset + noise_factor * np.random.normal(

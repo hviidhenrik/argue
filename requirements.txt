@@ -4,5 +4,5 @@ pandas
 plotly
 pytest
 scikit_learn
-tensorflow-cpu==2.7.0
+tensorflow-cpu==2.4.1
 tqdm

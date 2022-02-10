@@ -12,7 +12,6 @@ from argue.utils.model import Network
 
 class BaseModel:
     def __init__(self, model_name: str = None):
-        self.verbose = False
         self.model_name: Optional[str] = model_name
         self.hyperparameters: Optional[Dict] = None
 

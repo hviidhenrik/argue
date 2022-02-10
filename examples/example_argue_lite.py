@@ -43,8 +43,8 @@ if __name__ == "__main__":
         model.fit(
             x_train.drop(columns=["partition"]),
             epochs=None,
-            autoencoder_epochs=0,
-            alarm_epochs=0,
+            autoencoder_epochs=4,
+            alarm_epochs=4,
             batch_size=None,
             autoencoder_batch_size=1,
             alarm_batch_size=1,
@@ -54,6 +54,7 @@ if __name__ == "__main__":
             validation_split=1 / 5,
             n_noise_samples=None,
             plot_normal_vs_noise=False,
+            log_with_wandb=True,
         )
         # model.save()
 

@@ -6,6 +6,7 @@ import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import wandb
 from pandas import DataFrame
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
@@ -43,6 +44,20 @@ class ARGUE(BaseModel):
         self.input_to_gating = None
         self.history = None
         self.verbose = verbose
+        self.ae_train_loss = []
+        self.ae_val_loss = []
+        self.ae_train_metric = []
+        self.ae_val_metric = []
+        self.alarm_train_loss = []
+        self.alarm_val_loss = []
+        self.alarm_train_metric = []
+        self.alarm_val_metric = []
+        self.alarm_train_metric = []
+        self.alarm_val_metric = []
+        self.gating_train_loss = []
+        self.gating_val_loss = []
+        self.gating_train_metric = []
+        self.gating_val_metric = []
         super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
@@ -214,6 +229,7 @@ class ARGUE(BaseModel):
         make_model_visualiations: bool = False,
     ):
         self.hyperparameters = {
+            "model_name": "ARGUE",
             "input_dim": self.input_dim,
             "latent_dim": self.latent_dim,
             "encoder_layers": encoder_hidden_layers,
@@ -366,7 +382,7 @@ class ARGUE(BaseModel):
     def fit(
         self,
         x: Union[DataFrame, np.ndarray],
-        partition_labels: Union[DataFrame, List[int]],
+        partition_labels: pd.Series,
         validation_split: float = 0.1,
         batch_size: Optional[int] = 128,
         autoencoder_batch_size: Optional[int] = None,
@@ -376,6 +392,7 @@ class ARGUE(BaseModel):
         alarm_gating_epochs: Optional[int] = None,
         n_noise_samples: Optional[int] = None,
         noise_stdevs_away: float = 3.0,
+        noise_mean: float = 0.5,
         noise_stdev: float = 1.0,
         ae_learning_rate: Union[float, List[float]] = 0.0001,
         alarm_gating_learning_rate: float = 0.0001,
@@ -390,6 +407,7 @@ class ARGUE(BaseModel):
         fn_tolerance: float = 0.3,
         plot_normal_vs_noise: bool = False,
         plot_learning_rate_decay: bool = False,
+        log_with_wandb: bool = False,
     ):
         self.hyperparameters.update(
             {
@@ -413,6 +431,10 @@ class ARGUE(BaseModel):
                 "fn_tolerance": fp_tolerance,
             }
         )
+
+        if log_with_wandb:
+            wandb.init(config=self.hyperparameters)
+
         autoencoder_epochs = epochs if autoencoder_epochs is None else autoencoder_epochs
         alarm_gating_epochs = epochs if alarm_gating_epochs is None else alarm_gating_epochs
         autoencoder_batch_size = batch_size if autoencoder_batch_size is None else autoencoder_batch_size
@@ -429,13 +451,8 @@ class ARGUE(BaseModel):
 
         # make gaussian noise samples so the optimization doesn't only see "healthy" data
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
-        # TODO revise noise distribution
         x_noise = generate_noise_samples(
-            x_copy.drop(columns=["partition"]),
-            quantiles=[0.005, 0.995],
-            stdev=noise_stdev,
-            stdevs_away=noise_stdevs_away,
-            n_noise_samples=n_noise_samples,
+            x_copy.drop(columns=["partition"]), mean=noise_mean, stdev=noise_stdev, n_noise_samples=n_noise_samples,
         )
 
         if plot_normal_vs_noise:
@@ -532,7 +549,7 @@ class ARGUE(BaseModel):
             )
 
         # TODO tf.function throws error when run in "fwp30_argue.py", but not in the do_test_example.py
-        @tf.function
+        # @tf.function
         def _ae_train_step(x_batch_train):
             with tf.GradientTape() as tape:
                 predictions = ae_model(x_batch_train, training=True)
@@ -598,6 +615,7 @@ class ARGUE(BaseModel):
                     avg_ae_model_val_loss.append(np.mean(epoch_val_loss))
                     avg_ae_model_train_metric.append(np.mean(epoch_train_metric))
                     avg_ae_model_val_metric.append(np.mean(epoch_val_metric))
+
             vprint(
                 self.verbose,
                 f"--- Average epoch loss [train: {np.mean(avg_ae_model_train_loss):.4f}, "
@@ -605,6 +623,22 @@ class ARGUE(BaseModel):
                 f"| Average model MAE [train: {np.mean(avg_ae_model_train_metric):.4f}, "
                 f"val: {np.mean(avg_ae_model_val_metric):.4f}]",
             )
+
+            self.ae_train_loss.append(np.mean(avg_ae_model_train_loss))
+            self.ae_val_loss.append(np.mean(avg_ae_model_val_loss))
+            self.ae_train_metric.append(np.mean(avg_ae_model_train_metric))
+            self.ae_val_metric.append(np.mean(avg_ae_model_val_metric))
+
+            if log_with_wandb:
+                wandb.log(
+                    {
+                        "ae_avg_train_loss": np.mean(avg_ae_model_train_loss),
+                        "ae_avg_val_loss": np.mean(avg_ae_model_val_loss),
+                        "ae_avg_train_MAE": np.mean(avg_ae_model_train_metric),
+                        "ae_avg_val_MAE": np.mean(avg_ae_model_val_metric),
+                    }
+                )
+
             epoch_end = time.time()
             epoch_time_elapsed = epoch_end - epoch_start
             vprint(self.verbose, f"--- Time elapsed: {epoch_time_elapsed:.2f} seconds")
@@ -712,8 +746,6 @@ class ARGUE(BaseModel):
 
             alarm_metric_fn.update_state(true_alarm, predicted_alarm)
             gating_metric_fn.update_state(true_gating, predicted_gating)
-            # predicted_final = tf.constant([0])
-            # final_loss_value = tf.constant([0])
             final_metric_fn.update_state(true_final, predicted_final)
             return alarm_loss_value, gating_loss_value, final_loss_value
 
@@ -747,6 +779,7 @@ class ARGUE(BaseModel):
                 alarm_epoch_train_metric.append(alarm_metric_fn.result())
                 gating_epoch_train_metric.append(gating_metric_fn.result())
                 final_epoch_train_metric.append(final_metric_fn.result())
+
                 alarm_metric_fn.reset_states()
                 gating_metric_fn.reset_states()
                 final_metric_fn.reset_states()
@@ -793,6 +826,30 @@ class ARGUE(BaseModel):
                 alarm_metric_fn.reset_states()
                 gating_metric_fn.reset_states()
                 final_metric_fn.reset_states()
+
+            self.alarm_train_loss.append(np.mean(alarm_epoch_train_loss))
+            self.alarm_val_loss.append(np.mean(alarm_epoch_val_loss))
+            self.alarm_train_metric.append(np.mean(alarm_epoch_train_metric))
+            self.alarm_val_metric.append(np.mean(alarm_epoch_val_metric))
+
+            self.gating_train_loss.append(np.mean(gating_epoch_train_loss))
+            self.gating_val_loss.append(np.mean(gating_epoch_val_loss))
+            self.gating_train_metric.append(np.mean(gating_epoch_train_metric))
+            self.gating_val_metric.append(np.mean(gating_epoch_val_metric))
+
+            if log_with_wandb:
+                wandb.log(
+                    {
+                        "alarm_train_loss": np.mean(alarm_epoch_train_loss),
+                        "alarm_val_loss": np.mean(alarm_epoch_val_loss),
+                        "alarm_train_MAE": np.mean(alarm_epoch_train_metric),
+                        "alarm_val_MAE": np.mean(alarm_epoch_val_metric),
+                        "gating_train_loss": np.mean(gating_epoch_train_loss),
+                        "gating_val_loss": np.mean(gating_epoch_val_loss),
+                        "gating_train_MAE": np.mean(gating_epoch_train_metric),
+                        "gating_val_MAE": np.mean(gating_epoch_val_metric),
+                    }
+                )
 
             vprint(
                 self.verbose,
@@ -905,7 +962,7 @@ class ARGUE(BaseModel):
         col_names = x.columns
         col_names_pred = col_names + "_pred"
         df_predictions.columns = col_names_pred
-        df_all = pd.concat([x, df_predictions], 1)
+        df_all = pd.concat([x, df_predictions], axis=1)
 
         swapped_col_order = []
         for i in range(len(col_names)):
