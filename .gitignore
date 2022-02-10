@@ -117,3 +117,6 @@ venv.bak/
 
 # PyCharm project settings
 .idea
+
+# weights and biases
+wandb/
