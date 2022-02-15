@@ -9,6 +9,7 @@ import tensorflow as tf
 import wandb
 from pandas import DataFrame
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
 from wandb.keras import WandbCallback
@@ -244,7 +245,6 @@ class BaselineAutoencoder(BaseModel):
         if binarize:
             binary_predictions = self._compute_anomalies_from_threshold(x, residuals)
             return binary_predictions
-        from sklearn.preprocessing import MinMaxScaler
         residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
         return residuals
 
