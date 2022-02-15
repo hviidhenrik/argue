@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="phd-argue",
-    version="0.9.8",
+    version="0.9.9",
     description="Python package with ARGUE anomaly detection model",
     author="Henrik Hviid Hansen",
     packages=find_packages(),
@@ -15,7 +15,7 @@ setup(
         "pandas",
         "plotly",
         "scikit_learn",
-        "tensorflow-cpu<=2.7.0",
+        "tensorflow-cpu==2.4.1",
         "tqdm",
     ],
 )

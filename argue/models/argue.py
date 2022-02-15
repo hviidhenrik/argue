@@ -916,13 +916,13 @@ class ARGUE(BaseModel):
         if window_length is not None:
             window_length = [window_length] if type(window_length) != list else window_length
             fig, ax = plt.subplots(1, 1)
-            ax.plot(df_preds, label="Anomaly probability", alpha=0.6)
+            ax.plot(df_preds, label="Raw anomaly probability", alpha=0.5)
             ax.xaxis.set_major_locator(ticker.LinearLocator(numticks=8))
             plt.xticks(rotation=15)
 
             for window in window_length:
                 df_MA = df_preds.rolling(window=window).mean()
-                col_name = f"{window} sample moving average"
+                col_name = f"{window // 40} hour MA"
                 df_MA.columns.values[0] = col_name
                 ax.plot(df_MA, label=col_name)
             plt.legend()

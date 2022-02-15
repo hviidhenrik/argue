@@ -74,5 +74,5 @@ if __name__ == "__main__":
     print("Alarm probabilities:\n ", np.round(model.predict_alarm_probabilities(anomalies), 4))
     print("\nGating weights:\n ", np.round(model.predict_gating_weights(anomalies), 3))
     print(f"\nFinal anomaly probabilities:\n {final_preds}")
-    model.predict_plot_anomalies(anomalies, true_partitions=None)
+    model.predict_plot_anomalies(anomalies, true_partitions=None, window_length=2)
     plt.show()
