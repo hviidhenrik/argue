@@ -35,12 +35,12 @@ if __name__ == "__main__":
         )
         model.fit(
             x_train.drop(columns=["partition"]),
-            epochs=4,
+            epochs=20,
             batch_size=1,
             optimizer="adam",
             learning_rate=0.0001,
             validation_split=1 / 5,
-            log_with_wandb=True,
+            log_with_wandb=False,
         )
         # model.save()
 

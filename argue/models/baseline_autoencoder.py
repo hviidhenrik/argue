@@ -238,13 +238,17 @@ class BaselineAutoencoder(BaseModel):
         time_elapsed_string = make_time_elapsed_string(end - start, 180)
         print(f"\n----------- Model fitted after:", time_elapsed_string, "\n\n")
 
-    def predict(self, x: DataFrame):
+    def predict(self, x: DataFrame, binarize=True):
         predictions = self.input_to_decoders.predict(x)
-        anomalies = self._compute_anomalies_from_threshold(x, predictions)
-        return anomalies
-
-    def _compute_anomalies_from_threshold(self, x, predictions):
         residuals = self.residual_function(x, predictions).numpy()
+        if binarize:
+            binary_predictions = self._compute_anomalies_from_threshold(x, residuals)
+            return binary_predictions
+        from sklearn.preprocessing import MinMaxScaler
+        residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
+        return residuals
+
+    def _compute_anomalies_from_threshold(self, x, residuals):
         df_residuals = pd.DataFrame({"residual": residuals}, index=x.index)
         df_residuals["anomaly"] = 1 * (df_residuals["residual"] >= self.anomaly_threshold)
         return df_residuals["anomaly"]
@@ -274,7 +278,6 @@ class BaselineAutoencoder(BaseModel):
                 )
                 df_MA = df_preds.rolling(window=window).mean()
                 col_name = str(legend_time_string + " moving average")
-                df_MA.columns.values[0] = col_name
                 ax.plot(df_MA, label=col_name)
             plt.legend()
             return fig, ax
@@ -303,7 +306,7 @@ class BaselineAutoencoder(BaseModel):
         col_names = x.columns
         col_names_pred = col_names + "_pred"
         df_predictions.columns = col_names_pred
-        df_all = pd.concat([x, df_predictions], 1)
+        df_all = pd.concat([x, df_predictions], axis=1)
 
         swapped_col_order = []
         for i in range(len(col_names)):
