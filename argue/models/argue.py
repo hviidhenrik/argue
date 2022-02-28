@@ -910,6 +910,7 @@ class ARGUE(BaseModel):
         x,
         true_partitions: Optional[List[int]] = None,
         window_length: Optional[Union[int, List[int]]] = None,
+        samples_per_hour: Optional[int] = 40,
         **kwargs,
     ):
         df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
@@ -924,9 +925,11 @@ class ARGUE(BaseModel):
             plt.xticks(rotation=15)
 
             for window in window_length:
+                legend_time_string = (
+                    f"{window / samples_per_hour:0.0f} hour" if samples_per_hour is not None else f"{window} sample"
+                )
                 df_MA = df_preds.rolling(window=window).mean()
-                col_name = f"{window // 40} hour MA"
-                df_MA.columns.values[0] = col_name
+                col_name = str(legend_time_string + " MA")
                 ax.plot(df_MA, label=col_name)
             plt.legend()
             return fig, ax
@@ -1003,7 +1006,7 @@ class ARGUE(BaseModel):
                 fancybox=True,
                 shadow=True,
             )
-            plt.suptitle("Model predictions")
+            plt.suptitle("Model reconstructions")
             fig.tight_layout()
         else:
             for key, value in kwargs.items():

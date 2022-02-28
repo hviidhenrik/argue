@@ -265,7 +265,7 @@ class BaselineAutoencoder(BaseModel):
         self,
         x,
         window_length: Optional[Union[int, List[int]]] = None,
-        samples_per_hour: int = 40,
+        samples_per_hour: Optional[int] = 40,
         binarize: bool = False,
         **kwargs,
     ):
@@ -282,7 +282,7 @@ class BaselineAutoencoder(BaseModel):
 
             for window in window_length:
                 legend_time_string = (
-                    f"{window / samples_per_hour:0.0f} hour" if samples_per_hour else f"{window} sample"
+                    f"{window / samples_per_hour:0.0f} hour" if samples_per_hour is not None else f"{window} sample"
                 )
                 df_MA = df_preds.rolling(window=window).mean()
                 col_name = str(legend_time_string + " MA")
@@ -352,7 +352,7 @@ class BaselineAutoencoder(BaseModel):
                 fancybox=True,
                 shadow=True,
             )
-            plt.suptitle("Model predictions")
+            plt.suptitle("Model reconstructions")
             fig.tight_layout()
         else:
             for key, value in kwargs.items():

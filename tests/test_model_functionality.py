@@ -54,9 +54,12 @@ def test_argue_fit_and_predict(df_fit_data, df_predict_data):
     )
     final_preds_actual = np.round(model.predict(df_predict_data), 4)
     final_preds_expected = np.array([0.6572, 0.668, 0.6644, 0.6582, 0.6617, 0.6339, 0.6373, 0.5488])
+
     model.predict_plot_reconstructions(df_predict_data)
     plt.show()
-    model.predict_plot_anomalies(df_predict_data)
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=40, window_length=2)
+    plt.show()
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=None, window_length=2)
     plt.show()
 
     # fmt: off
@@ -94,9 +97,12 @@ def test_argue_lite_fit_and_predict(df_fit_data, df_predict_data):
     )
     final_preds = np.round(model.predict(df_predict_data), 4)
     expected_preds = np.array([0.4818, 0.4375, 0.3942, 0.4726, 0.3652, 0.3171, 0.3735, 0.2927], dtype="float32",)
+
     model.predict_plot_reconstructions(df_predict_data)
     plt.show()
-    model.predict_plot_anomalies(df_predict_data)
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=40, window_length=2)
+    plt.show()
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=None, window_length=2)
     plt.show()
 
     assert type(model) == ARGUELite
@@ -123,9 +129,12 @@ def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
 
     final_preds = np.round(model.predict(df_predict_data), 4)
     expected_preds = np.array([0, 0, 0, 0, 0, 1, 1, 0])
+
     model.predict_plot_reconstructions(df_predict_data)
     plt.show()
-    model.predict_plot_anomalies(df_predict_data)
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=40, window_length=2)
+    plt.show()
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=None, window_length=2)
     plt.show()
 
     assert type(model) == BaselineAutoencoder
