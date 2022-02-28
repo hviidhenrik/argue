@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib import pyplot as plt
 
 from argue.models.argue import ARGUE
 from argue.models.argue_lite import ARGUELite
@@ -53,6 +54,11 @@ def test_argue_fit_and_predict(df_fit_data, df_predict_data):
     )
     final_preds_actual = np.round(model.predict(df_predict_data), 4)
     final_preds_expected = np.array([0.6572, 0.668, 0.6644, 0.6582, 0.6617, 0.6339, 0.6373, 0.5488])
+    model.predict_plot_reconstructions(df_predict_data)
+    plt.show()
+    model.predict_plot_anomalies(df_predict_data)
+    plt.show()
+
     # fmt: off
     assert type(model) == ARGUE
     assert type(final_preds_actual) == np.ndarray
@@ -88,11 +94,15 @@ def test_argue_lite_fit_and_predict(df_fit_data, df_predict_data):
     )
     final_preds = np.round(model.predict(df_predict_data), 4)
     expected_preds = np.array([0.4818, 0.4375, 0.3942, 0.4726, 0.3652, 0.3171, 0.3735, 0.2927], dtype="float32",)
+    model.predict_plot_reconstructions(df_predict_data)
+    plt.show()
+    model.predict_plot_anomalies(df_predict_data)
+    plt.show()
 
     assert type(model) == ARGUELite
     assert type(final_preds) == np.ndarray
     assert len(final_preds) == 8
-    assert sum((final_preds.reshape(8) - expected_preds) ** 2) < 1e-2
+    assert sum((final_preds.reshape(-1,) - expected_preds) ** 2) < 1e-2
 
 
 def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
@@ -104,7 +114,7 @@ def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
     )
     model.fit(
         x_train.drop(columns=["partition"]),
-        epochs=1,
+        epochs=3,
         batch_size=1,
         optimizer="adam",
         learning_rate=0.0001,
@@ -112,14 +122,13 @@ def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
     )
 
     final_preds = np.round(model.predict(df_predict_data), 4)
-    expected_preds = np.array([1, 1, 1, 1, 1, 1, 1, 1])
+    expected_preds = np.array([0, 0, 0, 0, 0, 1, 1, 0])
+    model.predict_plot_reconstructions(df_predict_data)
+    plt.show()
+    model.predict_plot_anomalies(df_predict_data)
+    plt.show()
 
     assert type(model) == BaselineAutoencoder
-    assert type(final_preds) == pd.Series
+    assert type(final_preds) == np.ndarray
     assert len(final_preds) == 8
-    assert sum((final_preds - expected_preds) ** 2) < 1e-2
-
-
-@pytest.mark.skip("not implemented yet")
-def test_argue_lite_simultaneous_fit_and_predict():
-    pass
+    assert sum((final_preds.reshape(-1,) - expected_preds) ** 2) < 1e-2

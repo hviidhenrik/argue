@@ -53,8 +53,9 @@ if __name__ == "__main__":
             alarm_learning_rate=0.0001,
             validation_split=1 / 5,
             n_noise_samples=None,
-            plot_normal_vs_noise=False,
-            log_with_wandb=True,
+            noise_mean=10,
+            plot_normal_vs_noise=True,
+            log_with_wandb=False,
         )
         # model.save()
 

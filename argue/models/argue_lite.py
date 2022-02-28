@@ -1,3 +1,4 @@
+import datetime
 import time
 from typing import List, Optional, Union
 
@@ -16,7 +17,8 @@ from tensorflow.keras.models import Model
 from wandb.keras import WandbCallback
 
 from argue.models.base_model import BaseModel
-from argue.utils.misc import generate_noise_samples, make_time_elapsed_string, vprint
+from argue.utils.misc import (generate_noise_samples, make_time_elapsed_string,
+                              vprint)
 from argue.utils.model import Network
 
 plt.style.use("seaborn")
@@ -92,15 +94,14 @@ class ARGUELite(BaseModel):
 
     @staticmethod
     def _prepare_data(
-        n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise, validation_split, x,
+        n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise, validation_split, x, noise_mean,
     ):
         x_copy = x.copy()
         x_copy["partition"] = 1
         # make gaussian noise samples so the optimization doesn't only see "healthy" data
         # and hence just learns to always predict healthy, i.e. P(healthy) = certain
-        # TODO revise noise distribution or do it at runtime/training time instead (on the fly)
         x_noise = generate_noise_samples(
-            x_copy.drop(columns=["partition"]), mean=0.5, stdev=noise_stdev, n_noise_samples=n_noise_samples,
+            x_copy.drop(columns=["partition"]), mean=noise_mean, stdev=noise_stdev, n_noise_samples=n_noise_samples,
         )
         if plot_normal_vs_noise:
             pca = PCA(2).fit(x_copy.drop(columns=["partition"]))
@@ -303,6 +304,7 @@ class ARGUELite(BaseModel):
         n_noise_samples: Optional[int] = None,
         noise_stdevs_away: float = 3.0,
         noise_stdev: float = 1.0,
+        noise_mean: float = 0.5,
         autoencoder_learning_rate: Union[float, List[float]] = 0.0001,
         alarm_learning_rate: float = 0.0001,
         optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
@@ -327,6 +329,7 @@ class ARGUELite(BaseModel):
                 "n_noise_samples": n_noise_samples,
                 "noise_stdevs_away": noise_stdevs_away,
                 "noise_stdev": noise_stdev,
+                "noise_mean": noise_mean,
                 "noise_factor": noise_factor,
                 "stop_early": stop_early,
                 "stop_early_patience": stop_early_patience,
@@ -349,7 +352,7 @@ class ARGUELite(BaseModel):
 
         # make datasets ready
         alarm_train_labels, alarm_val_labels, x_train, x_val = self._prepare_data(
-            n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise, validation_split, x,
+            n_noise_samples, noise_stdev, noise_stdevs_away, plot_normal_vs_noise, validation_split, x, noise_mean
         )
         autoencoder_train_dataset = x_train[x_train["partition"] == 1].drop(columns=["partition"])
         autoencoder_val_dataset = x_val[x_val["partition"] == 1].drop(columns=["partition"])
@@ -445,8 +448,9 @@ class ARGUELite(BaseModel):
             plt.legend()
             return fig, ax
 
-        df_preds.index = pd.to_datetime(df_preds.index)
-        df_preds.index = df_preds.index.map(lambda t: t.strftime("%d-%m-%Y"))
+        if isinstance(df_preds.index[0], datetime.date):
+            df_preds.index = pd.to_datetime(df_preds.index)
+            df_preds.index = df_preds.index.map(lambda t: t.strftime("%d-%m-%Y"))
         fig = df_preds.plot(subplots=True, rot=15, color=["#4099DA", "red"], **kwargs)
         plt.xlabel("")
         plt.suptitle("ARGUE anomaly predictions")
@@ -469,7 +473,7 @@ class ARGUELite(BaseModel):
         col_names = x.columns
         col_names_pred = col_names + "_pred"
         df_predictions.columns = col_names_pred
-        df_all = pd.concat([x, df_predictions], 1)
+        df_all = pd.concat([x, df_predictions], axis=1)
 
         swapped_col_order = []
         for i in range(len(col_names)):
@@ -490,8 +494,9 @@ class ARGUELite(BaseModel):
             for axis, col in zip(np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)):
                 df_to_plot = df_plots.iloc[:, col : col + 2]
                 df_to_plot.columns = ["Actual", "Predicted"]
-                df_to_plot.index = pd.to_datetime(df_to_plot.index)
-                df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
+                if isinstance(df_to_plot.index[0], datetime.date):
+                    df_to_plot.index = pd.to_datetime(df_to_plot.index)
+                    df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
                 df_to_plot.plot(ax=axes[axis], rot=15, legend=False)
                 axes[axis].set_title(df_plots.columns[col], size=10)
                 axes[axis].get_xaxis().get_label().set_visible(False)

@@ -11,9 +11,9 @@ from argue.utils.model import Network
 
 
 class BaseModel:
-    def __init__(self, model_name: str = None):
-        self.model_name: Optional[str] = model_name
-        self.hyperparameters: Optional[Dict] = None
+    def __init__(self, model_name: Optional[str] = None):
+        self.model_name = model_name
+        self.hyperparameters = None
 
     def save(self, save_path: Union[Path, str] = None, model_name: str = None):
         assert save_path is not None, "No path specified to save model to"

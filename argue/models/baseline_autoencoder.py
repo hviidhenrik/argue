@@ -1,3 +1,4 @@
+import datetime
 import time
 from typing import List, Optional, Union
 
@@ -239,7 +240,7 @@ class BaselineAutoencoder(BaseModel):
         time_elapsed_string = make_time_elapsed_string(end - start, 180)
         print(f"\n----------- Model fitted after:", time_elapsed_string, "\n\n")
 
-    def predict(self, x: DataFrame, binarize=True):
+    def predict(self, x: DataFrame, binarize: bool = False):
         predictions = self.input_to_decoders.predict(x)
         residuals = self.residual_function(x, predictions).numpy()
         if binarize:
@@ -253,22 +254,29 @@ class BaselineAutoencoder(BaseModel):
         df_residuals["anomaly"] = 1 * (df_residuals["residual"] >= self.anomaly_threshold)
         return df_residuals["anomaly"]
 
-    def predict_residuals(self, x):
+    def predict_residuals(self, x, as_probabilities: bool = False):
         predictions = self.input_to_decoders.predict(x)
         residuals = self.residual_function(x, predictions).numpy()
+        if as_probabilities:
+            residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
         return pd.DataFrame({"residual": residuals}, index=x.index)
 
     def predict_plot_anomalies(
-        self, x, window_length: Optional[Union[int, List[int]]] = None, samples_per_hour: int = 40, **kwargs,
+        self,
+        x,
+        window_length: Optional[Union[int, List[int]]] = None,
+        samples_per_hour: int = 40,
+        binarize: bool = False,
+        **kwargs,
     ):
-        df_preds = pd.DataFrame(self.predict(x))
+        df_preds = pd.DataFrame(self.predict(x, binarize=binarize))
         if x.index is not None:
             df_preds.index = x.index
 
         if window_length is not None:
             window_length = [window_length] if type(window_length) != list else window_length
             fig, ax = plt.subplots(1, 1)
-            ax.plot(df_preds, label="Anomaly probability", alpha=0.6)
+            ax.plot(df_preds, label="Raw anomaly probability", alpha=0.5)
             ax.xaxis.set_major_locator(ticker.LinearLocator(numticks=8))
             plt.xticks(rotation=15)
 
@@ -277,13 +285,14 @@ class BaselineAutoencoder(BaseModel):
                     f"{window / samples_per_hour:0.0f} hour" if samples_per_hour else f"{window} sample"
                 )
                 df_MA = df_preds.rolling(window=window).mean()
-                col_name = str(legend_time_string + " moving average")
+                col_name = str(legend_time_string + " MA")
                 ax.plot(df_MA, label=col_name)
             plt.legend()
             return fig, ax
 
-        df_preds.index = pd.to_datetime(df_preds.index)
-        df_preds.index = df_preds.index.map(lambda t: t.strftime("%d-%m-%Y"))
+        if isinstance(df_preds.index[0], datetime.date):
+            df_preds.index = pd.to_datetime(df_preds.index)
+            df_preds.index = df_preds.index.map(lambda t: t.strftime("%d-%m-%Y"))
         fig = df_preds.plot(subplots=True, rot=15, color=["#4099DA", "red"], **kwargs)
         plt.xlabel("")
         plt.suptitle("ARGUE anomaly predictions")
@@ -327,8 +336,9 @@ class BaselineAutoencoder(BaseModel):
             for axis, col in zip(np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)):
                 df_to_plot = df_plots.iloc[:, col : col + 2]
                 df_to_plot.columns = ["Actual", "Predicted"]
-                df_to_plot.index = pd.to_datetime(df_to_plot.index)
-                df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
+                if isinstance(df_to_plot.index[0], datetime.date):
+                    df_to_plot.index = pd.to_datetime(df_to_plot.index)
+                    df_to_plot.index = df_to_plot.index.map(lambda t: t.strftime("%d-%m-%Y"))
                 df_to_plot.plot(ax=axes[axis], rot=15, legend=False)
                 axes[axis].set_title(df_plots.columns[col], size=10)
                 axes[axis].get_xaxis().get_label().set_visible(False)
