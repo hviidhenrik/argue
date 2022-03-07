@@ -152,11 +152,11 @@ class ARGUE(BaseModel):
         return ae_loss, alarm_loss, gating_loss, final_loss
 
     @staticmethod
-    def _init_metric_functions():
+    def _init_metric_functions(final_output_metric: tf.metrics = tf.metrics.Accuracy()):
         ae_metric = tf.metrics.MeanAbsoluteError()
         alarm_metric = tf.metrics.MeanAbsoluteError()
         gating_metric = tf.metrics.MeanAbsoluteError()
-        final_metric = tf.metrics.BinaryAccuracy()  # MeanAbsoluteError()
+        final_metric = final_output_metric  # tf.metrics.BinaryAccuracy()  # MeanAbsoluteError()
         return ae_metric, alarm_metric, gating_metric, final_metric
 
     @staticmethod
@@ -410,6 +410,7 @@ class ARGUE(BaseModel):
         plot_normal_vs_noise: bool = False,
         plot_learning_rate_decay: bool = False,
         log_with_wandb: bool = False,
+        final_output_metric: tf.metrics = tf.metrics.Accuracy(),
     ):
         self.hyperparameters.update(
             {
@@ -532,7 +533,10 @@ class ARGUE(BaseModel):
 
         # init loss and metric functions
         (ae_loss_fn, alarm_loss_fn, gating_loss_fn, final_loss_fn,) = self._init_loss_functions()
-        (ae_metric_fn, alarm_metric_fn, gating_metric_fn, final_metric_fn,) = self._init_metric_functions()
+        (ae_metric_fn, alarm_metric_fn, gating_metric_fn, final_metric_fn,) = self._init_metric_functions(
+            final_output_metric=final_output_metric
+        )
+        final_output_metric_name = str(final_output_metric.name)
 
         # first train encoder and decoders
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder pairs ===")
@@ -851,6 +855,10 @@ class ARGUE(BaseModel):
                         "gating_val_loss": np.mean(gating_epoch_val_loss),
                         "gating_train_MAE": np.mean(gating_epoch_train_metric),
                         "gating_val_MAE": np.mean(gating_epoch_val_metric),
+                        "final_output_train_loss": np.mean(final_epoch_train_loss),
+                        "final_output_val_loss": np.mean(final_epoch_val_loss),
+                        f"final_output_train_{final_output_metric_name}": np.mean(final_epoch_train_metric),
+                        f"final_output_val_{final_output_metric_name}": np.mean(final_epoch_val_metric),
                     }
                 )
 
@@ -873,7 +881,7 @@ class ARGUE(BaseModel):
                 self.verbose,
                 f"--- Final loss  [train: {np.mean(final_epoch_train_loss):.4f}, "
                 f"val: {np.mean(final_epoch_val_loss):.4f}] "
-                f"| Accuracy [train: {np.mean(final_epoch_train_metric):.4f}, "
+                f"| {final_output_metric_name} [train: {np.mean(final_epoch_train_metric):.4f}, "
                 f"val: {np.mean(final_epoch_val_metric):.4f}]",
             )
             epoch_end = time.time()

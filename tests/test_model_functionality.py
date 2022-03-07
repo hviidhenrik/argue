@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import tensorflow as tf
 from matplotlib import pyplot as plt
 
 from argue.models.argue import ARGUE
@@ -51,6 +52,8 @@ def test_argue_fit_and_predict(df_fit_data, df_predict_data):
         alarm_gating_batch_size=1,
         validation_split=1 / 5,
         n_noise_samples=None,
+        log_with_wandb=True,
+        final_output_metric=tf.metrics.AUC(),
     )
     final_preds_actual = np.round(model.predict(df_predict_data), 4)
     final_preds_expected = np.array([0.6572, 0.668, 0.6644, 0.6582, 0.6617, 0.6339, 0.6373, 0.5488])

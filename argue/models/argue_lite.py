@@ -428,9 +428,9 @@ class ARGUELite(BaseModel):
     def predict(self, x: DataFrame):
         return self.input_to_alarm.predict(x)
 
-    def predict_plot_anomalies(self, x, window_length: Optional[Union[int, List[int]]] = None,
-                               samples_per_hour: Optional[int] = 40,
-                               **kwargs):
+    def predict_plot_anomalies(
+        self, x, window_length: Optional[Union[int, List[int]]] = None, samples_per_hour: Optional[int] = 40, **kwargs
+    ):
         df_preds = pd.DataFrame(self.predict(x), columns=["Anomaly probability"])
         if x.index is not None:
             df_preds.index = x.index
