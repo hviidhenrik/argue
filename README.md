@@ -19,18 +19,18 @@ https://drivendata.github.io/cookiecutter-data-science/#directory-structure
 ### Ideas
 TO DO
  - make AUC evaluation
-   - [x] implemented
+   - :heavy_check_mark: implemented
 
 Nice to have
  - a clustering method could be standard partitioning method, if no class vector is given
-   - [x] implemented
+   - :heavy_check_mark: implemented
  - make data handling more clean (maybe make a class for handling this)
  - more realistic anomalies for the noise counter examples - think VAE or AAE
 
 Experimental
  - could the raw alarm probabilities be used without the gating if we simply take the minimum probability over all
-   the models for each datapoint? :heavy_check_mark:
-   - [x] ARGUELite accomplishes this
+   the models for each datapoint?
+   - :heavy_check_mark: ARGUELite accomplishes this
  - could data be sliced vertically instead of horizontally? So each decoder is responsible for a
    predetermined set of variables instead of rows? Could also be used to model several pumps at the same time, or
    have several submodels inside one ARGUE model
@@ -39,6 +39,6 @@ Experimental
 
 Speedups
  - once autoencoder is trained, simply extract activations from it for each datapoint and train alarm&gating on these,
-   instead of calling the activation models every iteration :heavy_check_mark:
-   - [x] ARGUELite accomplishes this
+   instead of calling the activation models every iteration
+   - :heavy_check_mark: ARGUELite accomplishes this
 
