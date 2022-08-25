@@ -28,13 +28,13 @@ class BaselineAutoencoder(BaseModel):
     """
 
     def __init__(
-        self,
-        input_dim: int = 3,
-        latent_dim: int = 2,
-        residual_function: tf.keras.losses.Loss = tf.keras.losses.MeanAbsoluteError,
-        test_set_quantile_for_threshold: float = 0.995,
-        verbose: int = 1,
-        model_name: str = "",
+            self,
+            input_dim: int = 3,
+            latent_dim: int = 2,
+            residual_function: tf.keras.losses.Loss = tf.keras.losses.MeanAbsoluteError,
+            test_set_quantile_for_threshold: float = 0.995,
+            verbose: int = 1,
+            model_name: str = "",
     ):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -67,17 +67,17 @@ class BaselineAutoencoder(BaseModel):
         return np.quantile(self.residuals, self.test_set_quantile_for_threshold)
 
     def build_model(
-        self,
-        encoder_hidden_layers: List[int] = [10, 8, 5],
-        decoders_hidden_layers: List[int] = [5, 8, 10],
-        encoder_activation: str = "tanh",
-        decoders_activation: str = "tanh",
-        all_activations: Optional[str] = None,
-        encoder_dropout_frac: Optional[float] = None,
-        decoders_dropout_frac: Optional[float] = None,
-        make_model_visualiations: bool = False,
-        autoencoder_l1: Optional[float] = None,
-        autoencoder_l2: Optional[float] = None,
+            self,
+            encoder_hidden_layers: List[int] = [10, 8, 5],
+            decoders_hidden_layers: List[int] = [5, 8, 10],
+            encoder_activation: str = "tanh",
+            decoders_activation: str = "tanh",
+            all_activations: Optional[str] = None,
+            encoder_dropout_frac: Optional[float] = None,
+            decoders_dropout_frac: Optional[float] = None,
+            make_model_visualiations: bool = False,
+            autoencoder_l1: Optional[float] = None,
+            autoencoder_l2: Optional[float] = None,
     ):
         self.hyperparameters = {
             "model_name": "Autoencoder",
@@ -152,20 +152,20 @@ class BaselineAutoencoder(BaseModel):
         return self
 
     def fit(
-        self,
-        x: Union[DataFrame, np.ndarray],
-        validation_split: float = 0.1,
-        batch_size: Optional[int] = 128,
-        epochs: Optional[int] = 100,
-        learning_rate: Union[float, List[float]] = 0.0001,
-        optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
-        stop_early: bool = False,
-        stop_early_patience: int = 12,
-        reduce_lr_on_plateau: bool = False,
-        reduce_lr_by_factor: float = 0.5,
-        reduce_lr_patience: int = 10,
-        noise_factor: float = 0.0,
-        log_with_wandb: bool = False,
+            self,
+            x: Union[DataFrame, np.ndarray],
+            validation_split: float = 0.1,
+            batch_size: Optional[int] = 128,
+            epochs: Optional[int] = 100,
+            learning_rate: Union[float, List[float]] = 0.0001,
+            optimizer: Union[tf.keras.optimizers.Optimizer, str] = "adam",
+            stop_early: bool = False,
+            stop_early_patience: int = 12,
+            reduce_lr_on_plateau: bool = False,
+            reduce_lr_by_factor: float = 0.5,
+            reduce_lr_patience: int = 10,
+            noise_factor: float = 0.0,
+            log_with_wandb: bool = False,
     ):
         self.hyperparameters.update(
             {
@@ -245,7 +245,7 @@ class BaselineAutoencoder(BaseModel):
         residuals = self.residual_function(x, predictions).numpy()
         if binarize:
             binary_predictions = self._compute_anomalies_from_threshold(x, residuals)
-            return binary_predictions
+            return np.array(binary_predictions).reshape(-1, 1)
         residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
         return residuals
 
@@ -262,12 +262,12 @@ class BaselineAutoencoder(BaseModel):
         return pd.DataFrame({"residual": residuals}, index=x.index)
 
     def predict_plot_anomalies(
-        self,
-        x,
-        window_length: Optional[Union[int, List[int]]] = None,
-        samples_per_hour: Optional[int] = 40,
-        binarize: bool = False,
-        **kwargs,
+            self,
+            x,
+            window_length: Optional[Union[int, List[int]]] = None,
+            samples_per_hour: Optional[int] = 40,
+            binarize: bool = False,
+            **kwargs,
     ):
         df_preds = pd.DataFrame(self.predict(x, binarize=binarize))
         if x.index is not None:
@@ -325,7 +325,7 @@ class BaselineAutoencoder(BaseModel):
         df_all = df_all[swapped_col_order]
         if cols_to_plot is None:
             N_cols_to_plot = len(col_names) if len(col_names) <= 6 else 6
-            cols_to_plot = df_all.columns.values[0 : 2 * N_cols_to_plot]
+            cols_to_plot = df_all.columns.values[0: 2 * N_cols_to_plot]
 
         df_plots = df_all[cols_to_plot]
 
@@ -334,7 +334,7 @@ class BaselineAutoencoder(BaseModel):
             num_plots = int(df_plots.shape[1] / 2)
             fig, axes = plt.subplots(num_plots, 1, sharex=True)
             for axis, col in zip(np.arange(num_plots), np.arange(0, df_plots.shape[1], 2)):
-                df_to_plot = df_plots.iloc[:, col : col + 2]
+                df_to_plot = df_plots.iloc[:, col: col + 2]
                 df_to_plot.columns = ["Actual", "Predicted"]
                 if isinstance(df_to_plot.index[0], datetime.date):
                     df_to_plot.index = pd.to_datetime(df_to_plot.index)
