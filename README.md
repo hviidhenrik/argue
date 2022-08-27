@@ -1,25 +1,32 @@
 ## ARGUE anomaly detection
 ARGUE is the abbreviation of Anomaly detection by Recombining Gated Unsupervised Experts. This is a model for detecting
 anomalous data samples based on a combination of neural networks working together based on an approach called 
-Mixture of Experts. The model itself is based on the 2020 paper by Schulze and Sperl: https://arxiv.org/abs/2008.13763. Their original code implementing the model can be found at: https://github.com/Fraunhofer-AISEC/ARGUE
+Mixture of Experts. The model itself is based on the 2020 paper by Schulze and Sperl: https://arxiv.org/abs/2008.13763. 
+Their original code implementing the model can be found at: https://github.com/Fraunhofer-AISEC/ARGUE. 
+The code in this repository is not affiliated with the authors of the original paper - this is my own attempt at 
+implementing theirproposed model.  
 
-ARGUE is based on the idea of analysing the hidden activation patterns of several autoencoder networks, which are responsible for each their own partition of the data. 
+ARGUE is based on the idea of analysing the hidden activation patterns of several autoencoder networks, 
+which are responsible for each their own partition of the data. 
 
-The model is only trained on normal/healthy/nominal data points, so the activation patterns are learned for healthy data. 
-When new data comes in the model analyses the activation patterns these yield. The hypothesis is that data that is sufficiently different from the 
-training data will result in different activation patterns. The idea of using the activation patterns is to allow for the 
-detection of much more subtle anomalies rather than the usual way, using the prediction errors of a single autoencoder, where 
-subtle anomalous patterns may well have been suppressed during the encoding and decoding of the data. 
+The model is only trained on normal/healthy/nominal data points. Thus, the activation pattern distributions are learned 
+for healthy data only. When new data is to be predicted, the model analyses the activation patterns resulting from 
+these. If the new data is significantly different from the raining data, it  will result in different activation 
+patterns. The idea of using the activation patterns is to allow for the detection of more subtle anomaly information.
+The traditional way of detecting anomalies by autoencoders is to the reconstruction error of a given data point. The 
+motivating hypothesis behind ARGUE is that subtle anomaly patterns may be visible in the patterns of the hidden 
+activation values of both the encoder and decoder networks. This information may not be visible in the raw 
+reconstruction errors as information is lost during encoding and subsequent decoding. 
 
-The repo organization (somewhat) follows the cookiecutter structure given at: 
-https://drivendata.github.io/cookiecutter-data-science/#directory-structure
-
-
+This is the case since reconstruction error can be seen as an aggregation of the differences between the training 
+data and new data distributions. As such, it does not convey nuanced information about the nature of the data point 
+itself, only a binary outcome as to whether it deviates from the training data or not. If this deviation is subtle 
+enough, it might well drown out in the inherent noise of real-world data and as a consequence be overlooked. 
 
 ### Ideas
 TO DO
  - make AUC evaluation
-   - :heavy_check_mark: implemented
+   - :heavy_check_mark: implemented - in fact, any metric can be given to the models now
 
 Nice to have
  - a clustering method could be standard partitioning method, if no class vector is given
