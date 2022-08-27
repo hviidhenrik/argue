@@ -7,3 +7,4 @@ scikit_learn
 tensorflow-cpu
 tqdm
 wandb
+statsmodels

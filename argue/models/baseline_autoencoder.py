@@ -14,6 +14,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
 from wandb.keras import WandbCallback
+from statsmodels.distributions.empirical_distribution import ECDF
 
 from argue.models.base_model import BaseModel
 from argue.utils.misc import make_time_elapsed_string, vprint
@@ -47,6 +48,7 @@ class BaselineAutoencoder(BaseModel):
         self.anomaly_threshold = None
         self.test_set_quantile_for_threshold = test_set_quantile_for_threshold
         self.verbose = verbose
+        self.train_residuals_ecdf = None
         super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
@@ -233,6 +235,17 @@ class BaselineAutoencoder(BaseModel):
         )
         autoencoder_model.trainable = False
 
+        # compute ECDF from training residuals
+        train_reconstructions = autoencoder_model.predict(autoencoder_train_dataset_noisy)
+        train_residuals = pd.DataFrame(self
+                                       .residual_function(autoencoder_train_dataset_noisy, train_reconstructions)
+                                       .numpy()
+                                       )
+        residual_median = train_residuals.median(axis=0)
+        residuals_plus_median = (train_residuals.to_numpy() + residual_median.squeeze()).reshape(-1,)
+        # n0te: should ECDF be estimated from validation data instead to account for noise due to non-training data?
+        self.train_residuals_ecdf = ECDF(residuals_plus_median)
+
         self.anomaly_threshold = self._compute_anomaly_threshold(autoencoder_val_dataset_noisy)
         self.hyperparameters["anomaly_threshold"] = self.anomaly_threshold
 
@@ -240,9 +253,14 @@ class BaselineAutoencoder(BaseModel):
         time_elapsed_string = make_time_elapsed_string(end - start, 180)
         print(f"\n----------- Model fitted after:", time_elapsed_string, "\n\n")
 
-    def predict(self, x: DataFrame, binarize: bool = False):
+    def predict(self, x: DataFrame, binarize: bool = False, predict_proba: bool = True):
         predictions = self.input_to_decoders.predict(x)
         residuals = self.residual_function(x, predictions).numpy()
+        if predict_proba:
+            # estimate ECDF from training residuals which are shifted to the right by their median values. Plug new
+            # residuals into this and get probabilities out. Replace residuals in output dataframe with these probs.
+            # We add the median so obs by the center of training distribution don't get high anomaly probabilities.
+            residuals = self.train_residuals_ecdf(residuals).reshape(-1, 1)
         if binarize:
             binary_predictions = self._compute_anomalies_from_threshold(x, residuals)
             return np.array(binary_predictions).reshape(-1, 1)
@@ -267,9 +285,10 @@ class BaselineAutoencoder(BaseModel):
             window_length: Optional[Union[int, List[int]]] = None,
             samples_per_hour: Optional[int] = 40,
             binarize: bool = False,
+            predict_proba: bool = True,
             **kwargs,
     ):
-        df_preds = pd.DataFrame(self.predict(x, binarize=binarize))
+        df_preds = pd.DataFrame(self.predict(x, binarize=binarize, predict_proba=predict_proba))
         if x.index is not None:
             df_preds.index = x.index
 

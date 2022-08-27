@@ -130,14 +130,14 @@ def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
         validation_split=1 / 5,
     )
 
-    final_preds = np.round(model.predict(df_predict_data), 4)
+    final_preds = np.round(model.predict(df_predict_data, predict_proba=False), 4)
     expected_preds = np.array([0, 0, 0, 0, 0, 1, 1, 0])
 
     model.predict_plot_reconstructions(df_predict_data)
     plt.show()
-    model.predict_plot_anomalies(df_predict_data, samples_per_hour=40, window_length=2)
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=40, window_length=2, predict_proba=False)
     plt.show()
-    model.predict_plot_anomalies(df_predict_data, samples_per_hour=None, window_length=2)
+    model.predict_plot_anomalies(df_predict_data, samples_per_hour=None, window_length=2, predict_proba=False)
     plt.show()
 
     assert type(model) == BaselineAutoencoder
