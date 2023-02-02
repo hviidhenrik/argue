@@ -17,8 +17,7 @@ from tensorflow.keras.models import Model
 from wandb.keras import WandbCallback
 
 from argue.models.base_model import BaseModel
-from argue.utils.misc import (generate_noise_samples, make_time_elapsed_string,
-                              vprint)
+from argue.utils.misc import generate_noise_samples, make_time_elapsed_string, vprint
 from argue.utils.model import Network
 
 plt.style.use("seaborn")
@@ -38,7 +37,12 @@ class ARGUELite(BaseModel):
     """
 
     def __init__(
-        self, input_dim: int = 3, latent_dim: int = 2, verbose: int = 1, model_name: str = "",
+        self,
+        input_dim: int = 3,
+        latent_dim: int = 2,
+        verbose: int = 1,
+        model_name: str = "",
+        binarize_predictions: bool = False,  # I know it's bad design to put it here, but it's a necessity for the argue paper
     ):
         self.input_dim = input_dim
         self.number_of_decoders = 1
@@ -57,6 +61,7 @@ class ARGUELite(BaseModel):
         self.ae_val_loss = None
         self.alarm_train_loss = None
         self.alarm_val_loss = None
+        self.binarize_predictions = binarize_predictions
         super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
@@ -426,7 +431,10 @@ class ARGUELite(BaseModel):
         print(f"\n----------- Model fitted after:", time_elapsed_string, "\n\n")
 
     def predict(self, x: DataFrame):
-        return self.input_to_alarm.predict(x)
+        predictions = self.input_to_alarm.predict(x)
+        if self.binarize_predictions:
+            predictions = np.round(predictions, 0)
+        return predictions
 
     def predict_plot_anomalies(
         self, x, window_length: Optional[Union[int, List[int]]] = None, samples_per_hour: Optional[int] = 40, **kwargs

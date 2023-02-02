@@ -16,8 +16,7 @@ from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.models import Model
 
 from argue.models.base_model import BaseModel
-from argue.utils.misc import (check_alarm_sparsity, generate_noise_samples,
-                              plot_learning_schedule, vprint)
+from argue.utils.misc import check_alarm_sparsity, generate_noise_samples, plot_learning_schedule, vprint
 from argue.utils.model import Network
 
 plt.style.use("seaborn")
@@ -31,6 +30,7 @@ class ARGUE(BaseModel):
         latent_dim: int = 2,
         verbose: int = 1,
         model_name: str = "",
+        binarize_predictions: bool = False,  # I know it's bad design to put it here, but it's a necessity for the argue paper
     ):
         self.input_dim = input_dim
         self.number_of_decoders = number_of_decoders
@@ -60,6 +60,7 @@ class ARGUE(BaseModel):
         self.gating_val_loss = []
         self.gating_train_metric = []
         self.gating_val_metric = []
+        self.binarize_predictions = binarize_predictions
         super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
@@ -903,6 +904,8 @@ class ARGUE(BaseModel):
 
         # compute final weighted average anomaly score
         predictions = np.multiply(gating_vector, alarm_vector).sum(axis=1)
+        if self.binarize_predictions:
+            predictions = np.round(predictions, 0)
         return predictions
 
     def predict_gating_weights(self, x):

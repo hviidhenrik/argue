@@ -33,7 +33,7 @@ def df_predict_data():
 def test_argue_fit_and_predict(df_fit_data, df_predict_data):
     set_seed(1234)
     x_train = partition_by_quantiles(df_fit_data, "x1", quantiles=[0, 0.5, 1])
-    model = ARGUE(input_dim=2, number_of_decoders=2, latent_dim=1)
+    model = ARGUE(input_dim=2, number_of_decoders=2, latent_dim=1, binarize_predictions=False)
     model.build_model(
         encoder_hidden_layers=[6, 5, 4, 3, 2],
         decoders_hidden_layers=[2, 3, 4, 5, 6],
@@ -76,7 +76,7 @@ def test_argue_fit_and_predict(df_fit_data, df_predict_data):
 def test_argue_lite_fit_and_predict(df_fit_data, df_predict_data):
     set_seed(1234)
     x_train = partition_by_quantiles(df_fit_data, "x1", quantiles=[0, 0.5, 1])
-    model = ARGUELite(input_dim=2, latent_dim=1)
+    model = ARGUELite(input_dim=2, latent_dim=1, binarize_predictions=False)
     model.build_model(
         encoder_hidden_layers=[6, 5, 4, 3, 2],
         decoders_hidden_layers=[2, 3, 4, 5, 6],
@@ -117,7 +117,9 @@ def test_argue_lite_fit_and_predict(df_fit_data, df_predict_data):
 def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
     set_seed(1234)
     x_train = partition_by_quantiles(df_fit_data, "x1", quantiles=[0, 0.5, 1])
-    model = BaselineAutoencoder(input_dim=2, latent_dim=1, test_set_quantile_for_threshold=0.995)
+    model = BaselineAutoencoder(
+        input_dim=2, latent_dim=1, test_set_quantile_for_threshold=0.995, binarize_predictions=False
+    )
     model.build_model(
         encoder_hidden_layers=[6, 5, 4, 3, 2], decoders_hidden_layers=[2, 3, 4, 5, 6], all_activations="relu",
     )
