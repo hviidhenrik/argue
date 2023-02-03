@@ -129,11 +129,15 @@ def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
         batch_size=1,
         optimizer="adam",
         learning_rate=0.0001,
-        validation_split=1 / 5,
+        validation_split=2 / 5,
     )
 
-    final_preds = np.round(model.predict(df_predict_data, predict_proba=False), 4)
-    expected_preds = np.array([0, 0, 0, 0, 0, 1, 1, 0])
+    scalar_preds = np.round(model.predict(df_predict_data), 4)
+    expected_scalar_preds = np.array([0.5, 0.5, 1.5, 1.49, 3.51, 99.8, 100.49, 4.63])
+
+    model.binarize_predictions = True
+    binarized_predictions = model.predict(df_predict_data)
+    expected_binary_preds = np.array([1, 1, 1, 1, 1, 1, 1, 1])
 
     model.predict_plot_reconstructions(df_predict_data)
     plt.show()
@@ -143,6 +147,7 @@ def test_baseline_autoencoder_fit_and_predict(df_fit_data, df_predict_data):
     plt.show()
 
     assert type(model) == BaselineAutoencoder
-    assert type(final_preds) == np.ndarray
-    assert len(final_preds) == 8
-    assert sum((final_preds.reshape(-1,) - expected_preds) ** 2) < 1e-2
+    assert type(scalar_preds) == np.ndarray
+    assert len(scalar_preds) == 8
+    assert sum((scalar_preds.reshape(-1,) - expected_scalar_preds) ** 2) < 1e-2
+    assert sum((binarized_predictions - expected_binary_preds) ** 2) < 1e-2

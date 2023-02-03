@@ -189,10 +189,6 @@ class BaselineAutoencoder(BaseModel):
             wandb.init(config=self.hyperparameters)
 
         start = time.time()
-        # form initial training data making sure labels and partitions are right
-        vprint(
-            self.verbose, "Preparing data: slicing into partitions and batches...\n" f"Data dimensions: {x.shape}",
-        )
 
         autoencoder_train_dataset, autoencoder_val_dataset = train_test_split(x, test_size=validation_split)
         autoencoder_optimizer = self._init_optimizer(optimizer, learning_rate)
@@ -215,57 +211,33 @@ class BaselineAutoencoder(BaseModel):
         if log_with_wandb:
             callbacks.append(WandbCallback())
 
-        # in case we want a denoising autoencoder (noise_factor > 0) - if not data will remain unchanged
-        autoencoder_train_dataset_noisy = autoencoder_train_dataset + noise_factor * np.random.normal(
-            loc=0.0, scale=1.0, size=autoencoder_train_dataset.shape
-        )
-        autoencoder_val_dataset_noisy = autoencoder_val_dataset + noise_factor * np.random.normal(
-            loc=0.0, scale=1.0, size=autoencoder_val_dataset.shape
-        )
-
         # train autoencoder
         vprint(self.verbose, "\n\n=== Phase 1: training autoencoder ===")
         autoencoder_model.trainable = True
         autoencoder_model.compile(optimizer=autoencoder_optimizer, loss="binary_crossentropy", metrics=["MAE"])
         autoencoder_model.fit(
-            x=autoencoder_train_dataset_noisy,
+            x=autoencoder_train_dataset,
             y=autoencoder_train_dataset,
-            validation_data=(autoencoder_val_dataset_noisy, autoencoder_val_dataset),
+            validation_data=(autoencoder_val_dataset, autoencoder_val_dataset),
             batch_size=batch_size,
             epochs=epochs,
             callbacks=callbacks,
         )
         autoencoder_model.trainable = False
 
-        # compute ECDF from training residuals
-        train_reconstructions = autoencoder_model.predict(autoencoder_train_dataset_noisy)
-        train_residuals = pd.DataFrame(
-            self.residual_function(autoencoder_train_dataset_noisy, train_reconstructions).numpy()
-        )
-        residual_median = train_residuals.median(axis=0)
-        residuals_plus_median = (train_residuals.to_numpy() + residual_median.squeeze()).reshape(-1,)
-        # n0te: should ECDF be estimated from validation data instead to account for noise due to non-training data?
-        self.train_residuals_ecdf = ECDF(residuals_plus_median)
-
-        self.anomaly_threshold = self._compute_anomaly_threshold(autoencoder_val_dataset_noisy)
+        self.anomaly_threshold = self._compute_anomaly_threshold(autoencoder_val_dataset)
         self.hyperparameters["anomaly_threshold"] = self.anomaly_threshold
 
         end = time.time()
         time_elapsed_string = make_time_elapsed_string(end - start, 180)
         print(f"\n----------- Model fitted after:", time_elapsed_string, "\n\n")
 
-    def predict(self, x: DataFrame, predict_proba: bool = False, **kwargs):
+    def predict(self, x: DataFrame, **kwargs):
         predictions = self.input_to_decoders.predict(x)
         residuals = self.residual_function(x, predictions).numpy()
-        if predict_proba:
-            # estimate ECDF from training residuals which are shifted to the right by their median values. Plug new
-            # residuals into this and get probabilities out. Replace residuals in output dataframe with these probs.
-            # We add the median so obs by the center of training distribution don't get high anomaly probabilities.
-            residuals = self.train_residuals_ecdf(residuals).reshape(-1, 1)
         if self.binarize_predictions:
             binary_predictions = self._compute_anomalies_from_threshold(x, residuals)
-            return np.array(binary_predictions).reshape(-1, 1)
-        residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
+            return np.array(binary_predictions)
         return residuals
 
     def _compute_anomalies_from_threshold(self, x, residuals):
@@ -273,12 +245,12 @@ class BaselineAutoencoder(BaseModel):
         df_residuals["anomaly"] = 1 * (df_residuals["residual"] >= self.anomaly_threshold)
         return df_residuals["anomaly"]
 
-    def predict_residuals(self, x, as_probabilities: bool = False):
-        predictions = self.input_to_decoders.predict(x)
-        residuals = self.residual_function(x, predictions).numpy()
-        if as_probabilities:
-            residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
-        return pd.DataFrame({"residual": residuals}, index=x.index)
+    # def predict_residuals(self, x, as_probabilities: bool = False):
+    #     predictions = self.input_to_decoders.predict(x)
+    #     residuals = self.residual_function(x, predictions).numpy()
+    #     if as_probabilities:
+    #         residuals = MinMaxScaler().fit_transform(residuals.reshape(-1, 1))
+    #     return pd.DataFrame({"residual": residuals}, index=x.index)
 
     def predict_plot_anomalies(
         self,
