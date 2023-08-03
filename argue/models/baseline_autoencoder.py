@@ -37,12 +37,16 @@ class BaselineAutoencoder(BaseModel):
         verbose: int = 1,
         model_name: str = "",
         binarize_predictions: bool = False,  # I know it's bad design to put it here, but it's a necessity for the argue paper
+        attention: bool = False,
+        attention_units_in_layers: List[int] = None
     ):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.encoder = None
         self.decoder = None
         self.input_to_decoders = None
+        self.attention_model = None
+        self.attention_weights = None
         self.history = None
         self.residual_function = residual_function(reduction=tf.keras.losses.Reduction.NONE)
         self.residuals = None
@@ -51,6 +55,8 @@ class BaselineAutoencoder(BaseModel):
         self.verbose = verbose
         self.train_residuals_ecdf = None
         self.binarize_predictions = binarize_predictions
+        self.attention = attention
+        self.attention_units_in_layers = [5, 5] if not attention_units_in_layers else attention_units_in_layers
         super().__init__(model_name=model_name)
 
     def _connect_autoencoder_pair(self, decoder):
@@ -104,9 +110,24 @@ class BaselineAutoencoder(BaseModel):
             decoders_activation = all_activations
             alarm_activation: all_activations
 
+        encoder_input = Input(shape=(self.input_dim,))
+
+        if self.attention:
+            att_layer = Network(name="attention_model").build_model(
+                input_layer=Input(shape=(self.input_dim,)),
+                output_layer=Dense(self.input_dim, activation="linear"),
+                units_in_layers=self.attention_units_in_layers,
+                activation=encoder_activation,
+            )
+            w = tf.nn.softmax(att_layer.keras_model.output, axis=1)
+            output = w * att_layer.keras_model.input
+            self.attention_model = Model(att_layer.keras_model.input, output)
+            self.attention_weights = Model(att_layer.keras_model.input, w)
+            encoder_input = self.attention_model.output
+
         # build shared encoder
         self.encoder = Network(name="encoder").build_model(
-            input_layer=Input(shape=(self.input_dim,)),
+            input_layer=encoder_input,
             output_layer=Dense(self.latent_dim, encoder_activation),
             units_in_layers=encoder_hidden_layers,
             activation=encoder_activation,
@@ -128,7 +149,9 @@ class BaselineAutoencoder(BaseModel):
         )
 
         decoder_output_tensor = self._connect_autoencoder_pair(self.decoder).output
+
         self.input_to_decoders = Model(inputs=self.encoder.keras_model.input, outputs=decoder_output_tensor)
+        # self.input_to_decoders = Model(inputs=att_layer, outputs=decoder_output_tensor)
 
         if make_model_visualiations:
             # if plot_model doesn't work, first pip install pydot, then pip install pydotplus, then go to:

@@ -24,7 +24,8 @@ if __name__ == "__main__":
         model = BaselineAutoencoder().load()
     else:
         # call and fit model
-        model = BaselineAutoencoder(input_dim=2, latent_dim=1, test_set_quantile_for_threshold=0.995)
+        model = BaselineAutoencoder(input_dim=2, latent_dim=1, test_set_quantile_for_threshold=0.995,
+                                    attention=True, attention_units_in_layers=[4, 4, 4])
         model.build_model(
             encoder_hidden_layers=[6, 5, 4, 3, 2],
             decoders_hidden_layers=[2, 3, 4, 5, 6],
@@ -44,10 +45,15 @@ if __name__ == "__main__":
         )
         # model.save()
 
-    anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22], "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
+    anomalies = pd.DataFrame({"x1": [0, 1, 2, -1, 4, 100, -100, 8.22],
+                              "x2": [0, 1, 2, -1, 4, 100, -100, 2]})
 
     # predict the mixed data
     final_preds = np.round(model.predict(anomalies), 4)
+    foo = model.attention_model.predict(anomalies)
+    bar = model.attention_weights.predict(anomalies)
+
+
     print(f"\nFinal anomaly probabilities:\n {final_preds}")
     model.predict_plot_anomalies(anomalies)
     plt.show()

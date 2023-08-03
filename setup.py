@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="phd-argue",
-    version="1.0.7",
+    version="1.0.8",
     description="Python package with ARGUE anomaly detection model",
     author="Henrik Hviid Hansen",
     packages=find_packages(),

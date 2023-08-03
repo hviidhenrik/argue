@@ -105,9 +105,11 @@ class Network:
         activation_tensor = extract_activations(
             self.keras_model, self.name + "_activations", keep_output_layer=keep_output_layer_activations
         )
-        self.activation_model = Model(
-            inputs=self.keras_model.input, outputs=activation_tensor, name=self.name + "_activations"
-        )
+
+        if not ("attention" in self.name or "encoder" in self.name):
+            self.activation_model = Model(
+                inputs=self.keras_model.input, outputs=activation_tensor, name=self.name + "_activations"
+            )
         return self
 
     def summary(self, model: str = "keras_model"):
